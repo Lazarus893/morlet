@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
+    <application
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+
+        <!-- Launcher entry: settings, takeover button, task status -->
+        <activity
+            android:name=".SettingsActivity"
+            android:theme="@style/SettingsTheme"
+            android:exported="true"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Dialog Activity: launched via ADB am start -->
+        <activity
+            android:name=".DialogActivity"
+            android:theme="@style/DialogTheme"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:taskAffinity="">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+            </intent-filter>
+        </activity>
+
+        <!-- Overlay Foreground Service -->
+        <service
+            android:name=".OverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="screen_overlay_protection" />
+        </service>
+
+        <!-- Screen recording: holds the MediaProjection between tasks -->
+        <service
+            android:name=".RecordService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+
+        <!-- Recording control from the Mac: action=start|stop, task_id -->
+        <receiver
+            android:name=".RecordReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.agent.helper.RECORD" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Command Receiver -->
+        <receiver
+            android:name=".CommandReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.agent.helper.COMMAND" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Task status pushed from the Mac: drives the status text, bubble and overlay -->
+        <receiver
+            android:name=".TaskStatusReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.agent.helper.TASK_STATUS" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Overlay control receiver: forwards broadcasts to OverlayService -->
+        <receiver
+            android:name=".OverlayReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.agent.helper.OVERLAY_ON" />
+                <action android:name="com.agent.helper.OVERLAY_OFF" />
+                <action android:name="com.agent.helper.OVERLAY_STATUS" />
+            </intent-filter>
+        </receiver>
+
+    </application>
+</manifest>

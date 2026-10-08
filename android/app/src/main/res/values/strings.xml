@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">小满手机助手</string>
+
+    <!-- Overlay -->
+    <string name="overlay_title">小满操作中</string>
+    <string name="overlay_subtitle">请勿触碰屏幕，小满正在操作手机</string>
+    <string name="overlay_unlock">长按解锁</string>
+    <string name="overlay_unlocking">按住中… (%1$d秒)</string>
+    <string name="overlay_loading_1">正在分析屏幕…</string>
+    <string name="overlay_loading_2">正在执行操作…</string>
+    <string name="overlay_loading_3">正在处理中…</string>
+
+    <!-- Dialogs -->
+    <string name="dialog_info_title">提示</string>
+    <string name="dialog_yesno_title">确认</string>
+    <string name="dialog_input_title">请输入</string>
+    <string name="btn_ok">确定</string>
+    <string name="btn_yes">确认</string>
+    <string name="btn_no">取消</string>
+    <string name="btn_submit">提交</string>
+    <string name="input_hint">在此输入…</string>
+    <string name="powered_by">Powered by Agent Helper</string>
+
+    <!-- Settings page -->
+    <string name="settings_subtitle">小满替你操作手机时的做法，都在这里调。改完立即生效。</string>
+    <string name="perm_title">悬浮窗权限未开启</string>
+    <string name="perm_body">不开启的话，任务进行中看不到悬浮「接管」按钮和防误触遮罩。</string>
+    <string name="perm_action">去开启</string>
+    <string name="section_record">记录</string>
+    <string name="section_run">执行</string>
+    <string name="section_floating">任务进行中</string>
+    <string name="section_status">当前状态</string>
+    <string name="setting_record">录制任务视频</string>
+    <string name="setting_record_desc">完整录下小满的操作过程，方便回看</string>
+    <string name="setting_screenshot">存截图到日志</string>
+    <string name="setting_screenshot_desc">方便事后查看小满每一步看到了什么</string>
+    <string name="setting_checkpoint">向微信发进度截图</string>
+    <string name="setting_checkpoint_desc">拖到 0 表示不发</string>
+    <string name="setting_max_steps">单次任务最多步数</string>
+    <string name="setting_max_steps_desc">超过这个步数，任务会自动停止</string>
+    <string name="setting_bubble">显示悬浮「接管」按钮</string>
+    <string name="setting_bubble_desc">停在屏幕右侧，可拖动，点一下叫停</string>
+    <string name="setting_overlay">显示防误触遮罩</string>
+    <string name="setting_overlay_desc">遮住屏幕防止误碰，长按 3 秒可解锁</string>
+    <string name="every_n_steps">每 %1$d 步</string>
+    <string name="never_send">不发</string>
+    <string name="n_steps">%1$d 步</string>
+    <string name="takeover_button">我来接管</string>
+    <string name="takeover_hint">小满会在当前这一步做完后暂停，把手机交还给你</string>
+
+    <!-- Task status -->
+    <string name="status_none">暂无任务</string>
+    <string name="status_none_detail">小满开始干活后，这里会显示进度</string>
+    <string name="status_running">进行中</string>
+    <string name="status_paused">已暂停</string>
+    <string name="status_finished">已完成</string>
+    <string name="status_error">出错了</string>
+    <string name="status_step">%1$s · 第 %2$d 步</string>
+    <string name="status_total_steps">%1$s · 共 %2$d 步</string>
+    <string name="status_updated_at">更新于 %1$s</string>
+
+    <!-- Takeover -->
+    <string name="takeover_sent">已通知小满暂停</string>
+    <string name="takeover_failed">通知失败，请再试一次</string>
+    <string name="takeover_already">已请求接管，等小满暂停</string>
+    <string name="bubble_title">小满操作中</string>
+    <string name="bubble_action">点我接管</string>
+    <string name="bubble_requested_title">已请求接管</string>
+    <string name="bubble_requested_action">等待暂停</string>
+    <string name="bubble_description">小满操作中，点按接管手机</string>
+    <string name="bubble_requested_description">已请求接管，等待小满暂停</string>
+
+    <!-- Foreground notification -->
+    <string name="notification_channel_description">小满操作手机时的常驻通知</string>
+    <string name="notification_text">小满正在操作手机，点此打开助手</string>
+
+    <!-- Screen recording -->
+    <string name="record_auth_title">录屏授权</string>
+    <string name="record_auth_button">授权录屏</string>
+    <string name="record_reauth_button">重新授权</string>
+    <string name="record_auth_ok">已授权，小满可随时录制</string>
+    <string name="record_auth_none">未授权，授权后小满才能录制任务视频</string>
+    <string name="record_auth_lost">授权已失效，请重新授权</string>
+    <string name="record_auth_revoked">授权被系统收回（可能是开了投屏），请重新授权</string>
+    <string name="record_cast_note">录屏和手机投屏共用一个系统通道，二选一：开了投屏录屏会失效，授权录屏会中断投屏。</string>
+    <string name="record_status_ready">录屏：已就绪</string>
+    <string name="record_status_off">录屏：未授权</string>
+    <string name="record_status_recording">录屏：正在录制 %1$s · 第 %2$d 段</string>
+    <string name="record_channel_name">录屏</string>
+    <string name="record_notification_ready">录屏已就绪</string>
+    <string name="record_notification_recording">正在录制 · %1$s</string>
+</resources>

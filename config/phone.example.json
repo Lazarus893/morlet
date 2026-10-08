@@ -1,0 +1,8 @@
+{
+  "device_config": {
+    "device_type": "adb",
+    "device_id": "",
+    "base_url": "",
+    "model": "autoglm-phone"
+  }
+}

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="dialog_padding">28dp</dimen>
+    <dimen name="dialog_corner_radius">20dp</dimen>
+    <dimen name="dialog_min_width">300dp</dimen>
+    <dimen name="dialog_elevation">12dp</dimen>
+
+    <dimen name="title_size">22sp</dimen>
+    <dimen name="body_size">16sp</dimen>
+    <dimen name="caption_size">13sp</dimen>
+
+    <dimen name="btn_corner_radius">12dp</dimen>
+    <dimen name="btn_padding_v">14dp</dimen>
+    <dimen name="btn_padding_h">24dp</dimen>
+
+    <dimen name="input_corner_radius">12dp</dimen>
+    <dimen name="input_padding">14dp</dimen>
+    <dimen name="input_min_height">100dp</dimen>
+
+    <dimen name="overlay_dot_size">10dp</dimen>
+    <dimen name="overlay_dot_spacing">8dp</dimen>
+</resources>

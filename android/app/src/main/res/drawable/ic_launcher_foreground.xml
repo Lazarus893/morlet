@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Phone outline with a tap ripple: "someone is operating your phone" -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3.5"
+        android:fillColor="#00000000"
+        android:pathData="M46,33 h16 a5,5 0 0 1 5,5 v32 a5,5 0 0 1 -5,5 h-16 a5,5 0 0 1 -5,-5 v-32 a5,5 0 0 1 5,-5 z" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M51,38.5 h6" />
+    <path
+        android:strokeColor="#99FFFFFF"
+        android:strokeWidth="2"
+        android:fillColor="#00000000"
+        android:pathData="M46.5,55 a7.5,7.5 0 1 0 15,0 a7.5,7.5 0 1 0 -15,0 z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M50.5,55 a3.5,3.5 0 1 0 7,0 a3.5,3.5 0 1 0 -7,0 z" />
+</vector>

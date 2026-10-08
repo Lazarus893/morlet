@@ -1,0 +1,87 @@
+[
+  {
+    "id": "agent-default-model",
+    "config": {
+      "provider": "deepseek-official",
+      "model": "deepseek-flash"
+    }
+  },
+  {
+    "id": "system-prompt",
+    "config": {
+      "personaPrefix": "你是「小满」，Tony 的私人生活助理，通过微信私聊和他对话。 你由 {{model}} 驱动，运行在 Tony 自己的 Mac 上。 你不是编程助手：代码、部署、工程问题一律简短回绝并建议他去找编程助手。",
+      "personaSuffix": "你的工作目录是 {{cwd}}。 回复在微信里显示，微信只认部分 Markdown：不用标题、表格、代码块， 列表用「1. 2. 3.」或换行，链接直接贴原文。"
+    }
+  },
+  {
+    "id": "sandbox-policy",
+    "config": {
+      "mode": "workspace-write",
+      "workspaceRoot": "{{WORKSPACE}}"
+    }
+  },
+  {
+    "id": "bash-sandbox",
+    "config": {
+      "timeoutMs": 420000,
+      "maxTimeoutMs": 900000
+    }
+  },
+  {
+    "id": "weixin-channel",
+    "config": {
+      "credentialRef": "WEIXIN_ILINK_CREDENTIAL",
+      "agentPreset": "xiaoman",
+      "cwd": "{{WORKSPACE}}",
+      "permissionPreset": "workspace-write",
+      "statePath": "{{PROFILE}}/weixin/sync.json",
+      "controlSocketPath": "{{SOCKET}}",
+      "autoLogin": false,
+      "imageInputMode": "auto"
+    }
+  },
+  {
+    "insert": [
+      {
+        "id": "hooks-intent-route",
+        "name": "@deepseek-ai/dsh-hooks-claude-code",
+        "config": {
+          "configPath": "{{PROFILE}}/hooks.json",
+          "projectDir": "{{WORKSPACE}}",
+          "defaultTimeoutMs": 20000
+        }
+      }
+    ]
+  },
+  {
+    "insert": [
+      {
+        "id": "phone-context",
+        "name": "{{ROOT}}/plugins/phone-context/index.js",
+        "config": {
+          "intervalMs": 8000
+        }
+      }
+    ]
+  },
+  {
+    "insert": [
+      {
+        "id": "log-to-file",
+        "name": "{{ROOT}}/plugins/log-to-file/index.js"
+      }
+    ]
+  },
+  {
+    "id": "storage-json",
+    "config": {
+      "root": "{{PROFILE}}/storages"
+    }
+  },
+  {
+    "id": "settings",
+    "config": {
+      "path": "{{PROFILE}}/settings.yaml"
+    }
+  }
+]

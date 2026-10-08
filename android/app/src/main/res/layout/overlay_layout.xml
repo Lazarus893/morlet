@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Overlay: Claude-inspired dark loading screen with animated dots -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/overlay_bg">
+
+    <!-- Center content: icon + title + loading dots + status text -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        android:padding="32dp">
+
+        <!-- Agent icon circle -->
+        <FrameLayout
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:layout_marginBottom="24dp">
+
+            <View
+                android:layout_width="72dp"
+                android:layout_height="72dp"
+                android:background="@drawable/loading_dot"
+                android:alpha="0.15" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="\uD83E\uDD16"
+                android:textSize="32sp" />
+        </FrameLayout>
+
+        <!-- Title -->
+        <TextView
+            android:id="@+id/overlay_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/overlay_title"
+            android:textSize="24sp"
+            android:textColor="@color/text_overlay"
+            android:textStyle="bold"
+            android:letterSpacing="0.02"
+            android:layout_marginBottom="8dp" />
+
+        <!-- Subtitle -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/overlay_subtitle"
+            android:textSize="14sp"
+            android:textColor="@color/text_overlay_sub"
+            android:layout_marginBottom="32dp" />
+
+        <!-- Loading dots row -->
+        <LinearLayout
+            android:id="@+id/dots_container"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginBottom="16dp">
+
+            <View
+                android:id="@+id/dot_1"
+                android:layout_width="@dimen/overlay_dot_size"
+                android:layout_height="@dimen/overlay_dot_size"
+                android:background="@drawable/loading_dot"
+                android:layout_marginEnd="@dimen/overlay_dot_spacing" />
+
+            <View
+                android:id="@+id/dot_2"
+                android:layout_width="@dimen/overlay_dot_size"
+                android:layout_height="@dimen/overlay_dot_size"
+                android:background="@drawable/loading_dot"
+                android:layout_marginEnd="@dimen/overlay_dot_spacing" />
+
+            <View
+                android:id="@+id/dot_3"
+                android:layout_width="@dimen/overlay_dot_size"
+                android:layout_height="@dimen/overlay_dot_size"
+                android:background="@drawable/loading_dot" />
+        </LinearLayout>
+
+        <!-- Dynamic status text -->
+        <TextView
+            android:id="@+id/overlay_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/overlay_loading_1"
+            android:textSize="@dimen/caption_size"
+            android:textColor="@color/text_overlay_sub"
+            android:alpha="0.8" />
+
+    </LinearLayout>
+
+    <!-- Bottom: unlock button + progress ring -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:gravity="center_horizontal"
+        android:layout_marginBottom="64dp"
+        android:padding="16dp">
+
+        <!-- Unlock progress ring (shows fill during long-press) -->
+        <ProgressBar
+            android:id="@+id/unlock_progress"
+            style="@android:style/Widget.ProgressBar.Horizontal"
+            android:layout_width="200dp"
+            android:layout_height="4dp"
+            android:max="100"
+            android:progress="0"
+            android:visibility="invisible"
+            android:layout_marginBottom="12dp"
+            android:progressDrawable="@android:drawable/progress_horizontal" />
+
+        <Button
+            android:id="@+id/btn_unlock"
+            android:layout_width="200dp"
+            android:layout_height="wrap_content"
+            android:text="@string/overlay_unlock"
+            android:textSize="15sp"
+            android:textColor="#B3FFFFFF"
+            android:textAllCaps="false"
+            android:background="@drawable/btn_unlock_bg"
+            android:paddingTop="14dp"
+            android:paddingBottom="14dp"
+            android:letterSpacing="0.03" />
+    </LinearLayout>
+
+</FrameLayout>

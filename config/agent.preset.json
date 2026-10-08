@@ -1,0 +1,125 @@
+[
+  {
+    "id": "persona",
+    "name": "@deepseek-ai/dsh-persona",
+    "config": {
+      "prefix": "你是「小满」，Tony 的私人生活助理，通过微信私聊和他对话。 你由 {{model}} 驱动，运行在 Tony 自己的 Mac 上。 你不是编程助手：代码、部署、工程问题一律简短回绝并建议他去找编程助手。",
+      "suffix": "你的工作目录是 {{cwd}}。 回复在微信里显示，微信只认部分 Markdown：不用标题、表格、代码块， 列表用「1. 2. 3.」或换行，链接直接贴原文。"
+    }
+  },
+  {
+    "id": "agent-instructions",
+    "name": "@deepseek-ai/dsh-agent-instructions",
+    "config": {
+      "maxBytes": 65536,
+      "dshHome": "{{ROOT}}/home"
+    }
+  },
+  {
+    "id": "tool-bash",
+    "name": "@deepseek-ai/dsh-tool-bash",
+    "disabled": false
+  },
+  {
+    "id": "tool-pwsh",
+    "name": "@deepseek-ai/dsh-tool-pwsh",
+    "disabled": true
+  },
+  {
+    "id": "tool-fs",
+    "name": "@deepseek-ai/dsh-tool-fs"
+  },
+  {
+    "id": "tool-fs-search",
+    "name": "@deepseek-ai/dsh-tool-fs-search",
+    "config": {
+      "sampleOverCapGlobResults": false
+    }
+  },
+  {
+    "id": "tool-jobs",
+    "name": "@deepseek-ai/dsh-tool-jobs"
+  },
+  {
+    "id": "skill-filesystem",
+    "name": "@deepseek-ai/dsh-skill-filesystem",
+    "config": {
+      "includeDefaultRoots": false,
+      "customSkillDirs": [
+        "{{ROOT}}/skills"
+      ]
+    }
+  },
+  {
+    "id": "tool-skill",
+    "name": "@deepseek-ai/dsh-tool-skill"
+  },
+  {
+    "id": "planning",
+    "name": "cordis:group",
+    "group": true,
+    "isolate": {
+      "planMode": true
+    },
+    "config": [
+      {
+        "id": "plan-mode",
+        "name": "@deepseek-ai/dsh-plan-mode",
+        "config": {
+          "section": "You are in plan mode. Stay in plan mode until exit_plan_mode succeeds or the user switches the session mode. Do not edit or write files or run commands that change anything; explore with non-mutating reads only. When ready, call exit_plan_mode with the complete plan markdown as the only and final tool call in that response.\n"
+        }
+      }
+    ]
+  },
+  {
+    "id": "compaction",
+    "name": "cordis:group",
+    "group": true,
+    "isolate": {
+      "compaction": true,
+      "toolResultPruner": true
+    },
+    "config": [
+      {
+        "id": "compaction-basic",
+        "name": "@deepseek-ai/dsh-compaction-basic"
+      },
+      {
+        "id": "command-compact",
+        "name": "@deepseek-ai/dsh-command-compact"
+      },
+      {
+        "id": "tool-result-pruner",
+        "name": "@deepseek-ai/dsh-compaction-tool-result-pruner",
+        "config": {
+          "thresholdChars": 8192,
+          "headChars": 4096,
+          "tailChars": 1024
+        }
+      }
+    ]
+  },
+  {
+    "id": "tool-ask-user",
+    "name": "@deepseek-ai/dsh-tool-ask-user"
+  },
+  {
+    "id": "tool-todo",
+    "name": "@deepseek-ai/dsh-tool-todo",
+    "config": {
+      "allowParallelInProgress": true
+    }
+  },
+  {
+    "id": "tool-web",
+    "name": "@deepseek-ai/dsh-tool-web",
+    "config": {
+      "fetch": true,
+      "searchTimeoutMs": 60000
+    }
+  },
+  {
+    "id": "present",
+    "name": "@deepseek-ai/dsh-tool-present"
+  }
+]

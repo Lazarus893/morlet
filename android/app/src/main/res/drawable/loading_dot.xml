@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="@color/dot_active" />
+    <size android:width="@dimen/overlay_dot_size" android:height="@dimen/overlay_dot_size" />
+</shape>

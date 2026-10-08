@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Claude-inspired warm palette -->
+    <color name="primary">#C15F3C</color>
+    <color name="primary_dark">#A3492C</color>
+    <color name="primary_light">#D4876C</color>
+    <color name="accent">#C15F3C</color>
+
+    <!-- Backgrounds -->
+    <color name="bg_cream">#F4F3EE</color>
+    <color name="bg_white">#FFFFFF</color>
+    <color name="bg_overlay">#E6181818</color>
+
+    <!-- Text -->
+    <color name="text_primary">#DE000000</color>
+    <color name="text_secondary">#8A000000</color>
+    <color name="text_hint">#61000000</color>
+    <color name="text_on_primary">#FFFFFF</color>
+    <color name="text_overlay">#F0FFFFFF</color>
+    <color name="text_overlay_sub">#B3FFFFFF</color>
+
+    <!-- Buttons -->
+    <color name="btn_primary">#C15F3C</color>
+    <color name="btn_primary_pressed">#A3492C</color>
+    <color name="btn_secondary">#F4F3EE</color>
+    <color name="btn_secondary_text">#5A5650</color>
+
+    <!-- Input -->
+    <color name="input_stroke">#D0CBC3</color>
+    <color name="input_stroke_focused">#C15F3C</color>
+    <color name="input_bg">#FAFAF8</color>
+
+    <!-- Divider -->
+    <color name="divider">#E8E5DE</color>
+
+    <!-- Loading dots -->
+    <color name="dot_active">#C15F3C</color>
+    <color name="dot_inactive">#4DFFFFFF</color>
+
+    <!-- Task status -->
+    <color name="status_idle">#B5B0A7</color>
+    <color name="status_running">#C15F3C</color>
+    <color name="status_paused">#B7791F</color>
+    <color name="status_finished">#2F855A</color>
+    <color name="status_error">#C53030</color>
+
+    <!-- Takeover bubble -->
+    <color name="bubble_active">#EBC15F3C</color>
+    <color name="bubble_requested">#E6807C76</color>
+
+    <!-- Permission warning -->
+    <color name="warning_bg">#FDF1E7</color>
+    <color name="warning_stroke">#F0C9A8</color>
+</resources>
