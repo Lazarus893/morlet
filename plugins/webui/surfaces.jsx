@@ -8,7 +8,7 @@ import { Button } from '@openuidev/react-ui/Button';
 import { Input } from '@openuidev/react-ui/Input';
 import { FormControl } from '@openuidev/react-ui/FormControl';
 import { Label } from '@openuidev/react-ui/Label';
-import { MarkDownRenderer } from '@openuidev/react-ui/MarkdownRenderer';
+import { MarkDownRenderer } from '@openuidev/react-ui/MarkDownRenderer';
 import remarkGfm from 'remark-gfm';
 import { TextContent } from '@openuidev/react-ui/TextContent';
 import { MetricIndicatorWithStrikethrough } from '@openuidev/react-ui/MetricIndicator';

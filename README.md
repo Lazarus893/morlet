@@ -4,7 +4,7 @@
 
 小满运行在本机或自管服务器，连接已有的 DSH、Codex 或 WorkBuddy。你可以在网页、微信或 iMessage 里交代任务，回到手账查看结果、补充要求，或让它按日程继续跟进。
 
-[下载 v0.1.0 预览版](https://github.com/Lazarus893/xiaoman-personal-agent/releases/tag/v0.1.0) · [产品介绍 HTML](https://github.com/Lazarus893/xiaoman-personal-agent/releases/download/v0.1.0/xiaoman-intro.html) · [安装说明](docs/skill-bundle.md)
+[下载 v0.1.1 预览版](https://github.com/Lazarus893/xiaoman-personal-agent/releases/tag/v0.1.1) · [产品介绍 HTML](https://github.com/Lazarus893/xiaoman-personal-agent/releases/download/v0.1.1/xiaoman-intro.html) · [安装说明](docs/skill-bundle.md)
 
 ![小满手账：事项书签、旅行准备与预算](docs/product/journal.jpg)
 
@@ -36,7 +36,7 @@
 
 ### 推荐：让已有 Agent 安装
 
-1. 下载 Release 中的 [`xiaoman-skills.zip`](https://github.com/Lazarus893/xiaoman-personal-agent/releases/download/v0.1.0/xiaoman-skills.zip)。
+1. 下载 Release 中的 [`xiaoman-skills.zip`](https://github.com/Lazarus893/xiaoman-personal-agent/releases/download/v0.1.1/xiaoman-skills.zip)。
 2. 解压后，将 `skills/xiaoman-setup/` 交给已登录的 Codex 或 WorkBuddy，要求它阅读 `SKILL.md`，在你选择的新目录安装。
 3. 在小满「设置」完成需要的连接和本人扫码，回到「手账 → 认识小满」交代第一件真实任务。
 

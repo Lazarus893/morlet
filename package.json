@@ -1,6 +1,6 @@
 {
   "name": "xiaoman-personal-agent",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "小满：连接本地 Agent 的生活手账、多端任务派发与持续跟进",
   "engines": {
