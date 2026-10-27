@@ -1,0 +1,23 @@
+[Unit]
+Description=Xiaoman life journal Web
+After=network-online.target xiaoman-dsh.service
+Wants=xiaoman-dsh.service
+
+[Service]
+Type=simple
+Environment=PA_WEB_ORIGIN={{PUBLIC_ORIGIN}}
+User={{SERVICE_USER}}
+Group={{SERVICE_GROUP}}
+WorkingDirectory={{INSTALL_DIR}}/current
+# Share the Nango environment with xiaoman-dsh; Web connection checks alone do not verify Agent reads.
+EnvironmentFile={{INSTALL_DIR}}/service.env
+ExecStart={{NODE_COMMAND}} {{INSTALL_DIR}}/current/scripts/webui.mjs --port {{WEB_PORT}}
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

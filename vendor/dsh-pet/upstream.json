@@ -1,0 +1,13 @@
+{
+  "package": "dsh-pet",
+  "version": "0.3.7",
+  "repository": "https://github.com/PC2005-cloud/dsh-pet",
+  "license": "MIT",
+  "files": {
+    "src/host/index.ts": "2cf71aa916f54f55567717834f5062f58ddd2e9fb84d57b953b8e6ea182ae6a5",
+    "src/shared/chat.ts": "f6d2d0bbef38dd0d8d4978d8607177c90d10e2ed7c357640541ba4ea6f15ea31",
+    "src/shared/menu.ts": "f552fac59df1c7970ebaea15daa09ce104b2f5b0d914c4667d1fac904a7f10bf",
+    "src/standalone/server.ts": "daeb1ded84f6987ac803bed9afde04827d7a8e0908332c9610431a78ae2ab3af",
+    "runtime/electron-helper/main.js": "309267b013dc1d56a408f6b16d762c2a21de3985c5daf1c64a9b1b049be5ff81"
+  }
+}

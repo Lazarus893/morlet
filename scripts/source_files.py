@@ -1,46 +1,39 @@
-"""Allowlist for the standalone source distribution."""
-import os
-from pathlib import Path
+"""Exact, reviewed file list for the application framework distribution."""
+import json
+from pathlib import Path, PurePosixPath
 
-ROOT_FILES = {
-    "README.md", "AGENTS.md", "THIRD_PARTY_NOTICES.md", "package.json",
-    "package-lock.json", "requirements.txt", ".env.example", ".gitignore",
-}
-SOURCE_DIRS = {
-    "android", "bin", "config", "docs", "home", "phone-refs", "plugins",
-    "scripts", "skills", "tests", "vendor",
-}
+MANIFEST = "config/distribution.json"
 EXCLUDED = {
     "node_modules", ".git", ".gradle", "build", "__pycache__", ".venv",
-    ".runtime", "local.properties", ".DS_Store", ".credentials.yaml",
+    ".runtime", "memory", "_temp", "local.properties", ".DS_Store",
+    ".credentials.yaml", "local-skills", "personalization",
 }
 
 
 def source_files(root: Path):
-    candidates = [root / name for name in sorted(ROOT_FILES) if (root / name).exists()]
-    for name in sorted(SOURCE_DIRS):
-        directory = root / name
-        if not directory.exists():
-            continue
-        if directory.is_symlink():
-            raise ValueError(f"Source must be self-contained, found symlink: {directory}")
-        for current, directories, files in os.walk(directory):
-            for child in directories:
-                if child not in EXCLUDED and (Path(current) / child).is_symlink():
-                    raise ValueError(f"Source must be self-contained, found symlink: {Path(current) / child}")
-            directories[:] = sorted(d for d in directories if d not in EXCLUDED)
-            candidates.extend(Path(current) / filename for filename in sorted(files))
-    for path in candidates:
-        relative = path.relative_to(root)
-        parts = relative.parts
-        if parts[0] not in SOURCE_DIRS and relative.as_posix() not in ROOT_FILES:
-            continue
-        if any(part in EXCLUDED or part.startswith(".env") and part != ".env.example"
-               for part in parts):
-            continue
-        if path.suffix in {".pyc", ".log", ".jks", ".keystore"} or ".orig-" in path.name:
-            continue
-        if path.is_symlink():
-            raise ValueError(f"Source must be self-contained, found symlink: {relative}")
-        if path.is_file():
-            yield path
+    root = Path(root)
+    manifest = root / MANIFEST
+    if manifest.is_symlink() or manifest.parent.is_symlink():
+        raise ValueError("Distribution manifest must not be a symlink")
+    data = json.loads(manifest.read_text())
+    names = data.get("files")
+    if data.get("version") != 1 or not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+        raise ValueError("Invalid distribution manifest")
+    if MANIFEST not in names or len(set(names)) != len(names):
+        raise ValueError("Distribution manifest must include itself and contain no duplicates")
+    for name in sorted(names):
+        relative = PurePosixPath(name)
+        if relative.is_absolute() or relative.as_posix() != name or ".." in relative.parts or "\\" in name:
+            raise ValueError("Invalid distribution path")
+        if relative.parts[0] == "dist" or any(part in EXCLUDED or part.startswith(".env") and part != ".env.example" for part in relative.parts):
+            raise ValueError("Private or generated data cannot be distributed")
+        if relative.suffix in {".pyc", ".log", ".jks", ".keystore", ".db", ".sqlite", ".sqlite3"} or ".orig-" in relative.name or ".local." in relative.name:
+            raise ValueError("Private or generated data cannot be distributed")
+        path = root
+        for part in relative.parts:
+            path = path / part
+            if path.is_symlink():
+                raise ValueError("Distribution files and directories must not be symlinks")
+        if not path.is_file():
+            raise ValueError(f"Missing framework file: {name}")
+        yield path

@@ -1,0 +1,18 @@
+[Unit]
+Description=Xiaoman intranet gateway
+After=network-online.target xiaoman-web.service
+Wants=xiaoman-web.service
+
+[Service]
+Type=forking
+PIDFile=/run/xiaoman-nginx.pid
+ExecStartPre={{NGINX_COMMAND}} -t -c {{INSTALL_DIR}}/nginx.conf
+ExecStart={{NGINX_COMMAND}} -c {{INSTALL_DIR}}/nginx.conf
+ExecReload={{NGINX_COMMAND}} -s reload -c {{INSTALL_DIR}}/nginx.conf
+ExecStop={{NGINX_COMMAND}} -s quit -c {{INSTALL_DIR}}/nginx.conf
+Restart=on-failure
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

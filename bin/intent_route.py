@@ -6,7 +6,7 @@
      stdout 输出 {"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"…"}}
   2. 手动：intent_route.py "消息文本" → 直接打印分流结果
 
-模型：DeepSeek 官方 API 的 deepseek-flash，temperature 0，JSON 输出。密钥读 ~/.dsh/.credentials.yaml 的 refs.DEEPSEEK_API_KEY。
+模型和可选兼容接口由本机 INTENT_MODEL/INTENT_API_URL 配置；自定义接口只使用 INTENT_API_KEY。
 失败即放行（不注入任何内容），绝不阻塞消息。
 """
 from __future__ import annotations
@@ -18,17 +18,19 @@ import sys
 import time
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlparse
 
 from runtime_paths import DSH_HOME, WORKSPACE
 CRED = DSH_HOME / ".credentials.yaml"
-API = "https://api.deepseek.com/chat/completions"
+DEFAULT_API = "https://api.deepseek.com/chat/completions"
+API = os.environ.get("INTENT_API_URL") or DEFAULT_API
 MODEL = os.environ.get("INTENT_MODEL", "deepseek-flash")
 TIMEOUT = 12
 
-SYSTEM = """你是一个意图分流器，服务于「小满」——运行在 Tony 的 Mac 上、通过微信对话的私人生活助理。
+SYSTEM = """你是一个意图分流器，服务于「小满」——运行在用户的电脑上、通过微信对话的私人生活助理。
 小满有两只手：
-- PC 端（Mac）：联网搜索、打开网页、读写它工作区里的文件、Mac 上的提醒事项/备忘录/日历技能、整理和写作。
-- 移动端（Tony 的安卓手机，USB 连在 Mac 上）：在国内 App 里操作——美团、大众点评、小红书、抖音、微信、淘宝、闲鱼、京东、支付宝、菜鸟、高德地图、滴滴出行、飞猪、携程、淘票票。只查不付、不下单、不发消息。
+- PC 端（电脑）：联网搜索、打开网页、读写它工作区里的文件、电脑上的提醒事项/备忘录/日历技能、整理和写作。
+- 移动端（用户配置的 Android 或 iPhone）：在国内 App 里操作——美团、大众点评、小红书、抖音、微信、淘宝、闲鱼、京东、支付宝、菜鸟、高德地图、滴滴出行、飞猪、携程、淘票票。只查不付、不下单、不发消息。
 分流原则：
 1. 能在网页/联网工具拿到的 → pc。典型：天气、新闻、常识、公开的营业时间/价格/路线概览、公众号文章。
 2. 只有 App 里有的 → mobile。典型：我的订单/物流/账单/收藏/购物车/聊天记录、需要定位或登录态的「附近/最近/能不能送/配送费」、网页版阉割的小红书笔记/闲鱼/抖音/点评完整评价。
@@ -40,6 +42,10 @@ SYSTEM = """你是一个意图分流器，服务于「小满」——运行在 T
 
 
 def load_key() -> str | None:
+    if os.environ.get("INTENT_API_KEY"):
+        return os.environ["INTENT_API_KEY"]
+    if API != DEFAULT_API:
+        return None  # Never send an existing provider's key to a different endpoint.
     if os.environ.get("DEEPSEEK_API_KEY"):
         return os.environ["DEEPSEEK_API_KEY"]
     try:
@@ -59,6 +65,11 @@ def quick_route(text: str) -> dict | None:
 
 
 def classify(text: str) -> dict | None:
+    if os.environ.get("INTENT_ENABLED", "true").lower() in {"false", "0", "off"}:
+        return None
+    endpoint = urlparse(API)
+    if (endpoint.scheme != "https" and not (endpoint.scheme == "http" and endpoint.hostname in {"localhost", "127.0.0.1", "::1"})) or not endpoint.hostname or endpoint.username or endpoint.password or endpoint.query or endpoint.fragment:
+        raise ValueError("Invalid intent API endpoint")
     key = load_key()
     if not key:
         return None
@@ -70,7 +81,11 @@ def classify(text: str) -> dict | None:
         "messages": [{"role": "system", "content": SYSTEM}, {"role": "user", "content": text[:1500]}],
     }
     req = urllib.request.Request(API, data=json.dumps(body).encode(), headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+    # An authorization-bearing request must not follow redirects to another host.
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None
+    with urllib.request.build_opener(NoRedirect).open(req, timeout=TIMEOUT) as resp:
         data = json.loads(resp.read())
     content = data["choices"][0]["message"]["content"]
     try:
@@ -102,9 +117,9 @@ def render(r: dict) -> str:
     if route == "hybrid" and r.get("merge"):
         lines.append(f"- 合并：{r['merge']}")
     if route in ("mobile", "hybrid"):
-        lines.append("- 动手前看运行时上下文里的 phone: state=… 那一行：不是 connected 就先让 Tony 接上/解锁/授权，别跑。")
+        lines.append("- 动手前看运行时上下文里的 phone: state=… 那一行：不是 connected 就先让用户接上/解锁/授权，别跑。")
     if r.get("needs_location"):
-        lines.append("- 涉及位置：先确认 Tony 现在在哪，任务里写具体地名。")
+        lines.append("- 涉及位置：先确认用户现在在哪，任务里写具体地名。")
     if route in ("mobile", "hybrid"):
         lines.append("- 共享：手机侧产物会自动拉到 shared/from-phone/，要给手机用的文件放 shared/to-phone/ 再 phone_task.py push。")
     lines.append("- 分流只是建议，置信度低或明显不对就按你的判断来。")

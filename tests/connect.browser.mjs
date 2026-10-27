@@ -1,0 +1,91 @@
+// The install callback is a fixture: no LaunchAgent, models, or real messages.
+import assert from 'node:assert/strict';
+import { mkdtemp, rm, readFile, mkdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { createRequire } from 'node:module';
+import { once } from 'node:events';
+import { createWebUI } from '../plugins/webui/server.mjs';
+const require = createRequire(import.meta.url);
+const { chromium } = require(process.env.PA_PLAYWRIGHT_MODULE || 'playwright');
+const root = await mkdtemp(join(tmpdir(), 'pa-connect-browser-'));
+const config = JSON.parse(await readFile(new URL('../config/pa.example.json', import.meta.url)));
+let app, browser, finish, calls = 0;
+const helper = async () => ({ config, revision: 'fixture', socket: join(root, 'none'), installed: true, runtimeInstalled: true, pending: [] });
+const output = resolve('_temp/connect-acceptance'); await mkdir(output, { recursive: true });
+try {
+  app = createWebUI({ root, helper, rpc: async () => { throw Object.assign(new Error('OFFLINE'), { code: 'OFFLINE' }); },
+    localAgentSetup: async input => {
+      calls++; assert.equal(input.provider, 'codex'); assert.equal(input.workspace, null);
+      await new Promise(resolve => { finish = resolve; });
+      if (calls === 1) throw Object.assign(new Error('fixture'), { code: 'LOCAL_AGENT_SETUP_FAILED' });
+      const paired = app.hub.pair({ provider: 'codex', label: 'Codex' });
+      return { endpointId: paired.endpointId, installed: true, note: '连接助手已安装，等待心跳上线。首次任务将验证 CLI 登录。' };
+    } });
+  app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
+  const origin = `http://127.0.0.1:${app.server.address().port}`;
+  browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1050 } }), errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto(origin); await page.locator('#nav-chat').click();
+  await page.getByText('连接本地 Agent', { exact: true }).click();
+  const button = page.getByRole('button', { name: '连接这台 Mac 的 Agent' });
+  await button.click(); await page.getByText('正在检测 CLI 并安装连接助手…').waitFor();
+  assert.equal(await button.isDisabled(), true);
+  finish(); await page.getByText(/连接助手未安装成功/).first().waitFor();
+  assert.equal(await button.isEnabled(), true);
+  await button.click(); await page.getByText('正在检测 CLI 并安装连接助手…').waitFor();
+  finish(); await page.getByText(/连接助手已安装，等待心跳上线/).waitFor();
+  assert.equal(calls, 2); await page.locator('#chat-endpoints').getByText('Codex · 等待连接').waitFor();
+  await page.screenshot({ path: join(output, 'desktop.png'), fullPage: true });
+  await page.getByText('接入 iMessage', { exact: true }).click();
+  assert.equal(await page.locator('[name=chatId]').getAttribute('required'), null);
+  await page.locator('#chat-new').click();
+  await page.waitForFunction(() => document.querySelector('.conversation-link[aria-current="true"]'));
+  const form = page.locator('#chat-channel-pair');
+  await form.locator('[name=botAddress]').fill('bot@example.invalid');
+  await form.locator('[name=peer]').fill('bot@example.invalid');
+  await form.getByRole('button', { name: '生成 iMessage 连接配置' }).click();
+  await page.locator('#chat-status').getByText('请分别填写不同的小满收信地址和个人发信地址。', { exact: true }).waitFor();
+  assert.equal(app.hub.all('channelEndpoint').length, 0);
+  await form.locator('[name=peer]').fill('owner@example.invalid');
+  await form.getByRole('button', { name: '生成 iMessage 连接配置' }).click();
+  const download = page.locator('#chat-channel-result a'); await download.waitFor();
+  const downloaded = page.waitForEvent('download'); await download.click();
+  const privateConfig = JSON.parse(await readFile(await (await downloaded).path(), 'utf8'));
+  assert.equal(privateConfig.botAddress, 'bot@example.invalid'); assert.equal(privateConfig.peer, 'owner@example.invalid');
+  assert.equal(privateConfig.chatId, undefined);
+  const conversation = app.hub.all('conversation')[0];
+  const health = { ready: true, peer: 'owner@example.invalid', botAddress: 'bot@example.invalid', lastInboundAt: Date.now(), pendingInputs: 0 };
+  app.hub.channelStatus(privateConfig.token, health);
+  await page.locator('#chat-channels').getByText(/收发桥在线/).waitFor();
+  const source = { channel: 'imessage', account: privateConfig.channelId, peer: privateConfig.peer };
+  app.hub.submit({ conversationId: conversation.id, source, content: '从手机发起的任务', requestId: 'mobile-input' });
+  app.hub.reply(conversation.id, '任务结果与产物链接', source);
+  const delivery = app.hub.channelPoll(privateConfig.token).delivery;
+  app.hub.channelAck(privateConfig.token, { deliveryId: delivery.id, state: 'submitted' });
+  await page.locator('.chat-delivery').getByText('已提交，等待系统回执', { exact: true }).waitFor();
+  app.hub.channelAck(privateConfig.token, { deliveryId: delivery.id, state: 'read' });
+  await page.locator('.chat-delivery').getByText('对方已读', { exact: true }).waitFor();
+  const user = page.locator('.chat-message.from-user').filter({ hasText: '从手机发起的任务' });
+  const assistant = page.locator('.chat-message:not(.from-user)').filter({ hasText: '任务结果与产物链接' });
+  const assertSides = async () => {
+    const u = await user.boundingBox(), a = await assistant.boundingBox(), box = await page.locator('#chat-messages').boundingBox();
+    assert.ok(u.x > a.x, 'user message must be on the right');
+    assert.ok(box.x + box.width - u.x - u.width < 40, 'user message aligns with right edge');
+    assert.equal(await user.count(), 1); assert.equal(await assistant.count(), 1);
+  };
+  await assertSides();
+  await page.screenshot({ path: join(output, 'imessage-desktop.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await assertSides();
+  app.hub.channelStatus(privateConfig.token, { ...health, ready: false, error: 'IMESSAGE_CHAT_ACCESS_REQUIRED' });
+  await page.locator('#chat-channels').getByText(/需要检查消息读取权限/).waitFor();
+
+  await page.screenshot({ path: join(output, 'mobile.png'), fullPage: true });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  assert.deepEqual(errors, []);
+  console.log('Connection browser acceptance passed: install failure/retry, identity validation, downloaded config, bridge health, receipt states, and desktop/mobile message alignment.');
+} finally {
+  finish?.(); await browser?.close(); await app?.shutdown(); await rm(root, { recursive: true, force: true });
+}

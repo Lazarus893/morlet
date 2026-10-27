@@ -1,0 +1,14 @@
+{
+  "name": "xiaoman-pet-host",
+  "private": true,
+  "version": "1.0.0",
+  "packageManager": "pnpm@9.15.0",
+  "dependencies": {
+    "dsh-pet": "0.3.7"
+  },
+  "pnpm": {
+    "patchedDependencies": {
+      "dsh-pet@0.3.7": "patches/dsh-pet@0.3.7.patch"
+    }
+  }
+}

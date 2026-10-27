@@ -16,7 +16,7 @@ Phone automation agent 的 Android 端辅助 APK，提供对话交互、屏幕�
 ## 构建
 
 ### 前置条件
-- JDK 8+ (推荐 JDK 17)
+- JDK 17（本项目已验证的构建环境）
 - Android SDK (compileSdk 34)
 - 设置 `ANDROID_HOME` 环境变量
 
@@ -32,6 +32,15 @@ Phone automation agent 的 Android 端辅助 APK，提供对话交互、屏幕�
 ### 安装
 ```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+1.0.1 修复设置页初次恢复录屏状态时的递归刷新闪退。更新前核对新旧 APK 的签名证书相同，使用 `install -r` 保留数据；签名不同时不能卸载后重装来绕过。录屏授权仍由用户在手机系统弹窗确认。
+
+录屏状态回归使用宿主 JVM 和 Android/文件边界替身，不连接真实手机：
+
+```bash
+# 在项目根目录执行；JAVA_HOME 可指定已安装的 JDK
+python3 -m unittest discover -s tests -p test_android_record_state.py -v
 ```
 
 ## ADB 权限设置
@@ -284,7 +293,7 @@ stop 之后 `recording:false` 且 `segments` 列全，就可以 `adb pull` 了�
 - 持有授权期间，状态栏会一直显示系统的录屏/投屏指示。
 - 还没在授权状态下实机验证的：App 被 ColorOS 冻结时 180 秒分段会不会推迟（编码在系统媒体进程里，不受影响；但切段的计时器在 App 进程里）。
 
-### 验收步骤（Tony 自己做；需要先停掉投屏）
+### 验收步骤（设备所有者操作；需要先停掉投屏）
 
 以下命令在 Mac 终端执行，先设好路径变量：
 

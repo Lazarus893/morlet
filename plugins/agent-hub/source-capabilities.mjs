@@ -1,0 +1,21 @@
+// Shared declaration only: safe to import from config without runtime/store cycles.
+export const SOURCE_OPERATIONS = Object.freeze(Object.fromEntries(Object.entries({
+  calendar_events: { kind: 'google', permission: 'calendar', service: 'calendar' },
+  mail_search: { kind: 'google', permission: 'gmail', service: 'gmail' },
+  mail_read: { kind: 'google', permission: 'gmail', service: 'gmail' },
+  drive_recent: { kind: 'google', permission: 'drive', service: 'drive' },
+  drive_search: { kind: 'google', permission: 'drive', service: 'drive' },
+  drive_metadata: { kind: 'google', permission: 'drive', service: 'drive' },
+  docs_read: { kind: 'google', permission: 'drive', service: 'docs' },
+  sheets_metadata: { kind: 'google', permission: 'drive', service: 'sheets' },
+  sheets_read: { kind: 'google', permission: 'drive', service: 'sheets' },
+  contacts_search: { kind: 'google', permission: 'contacts', service: 'contacts' },
+  review_requests: { kind: 'github', permission: 'repos' },
+  github_repositories: { kind: 'github', permission: 'repos' },
+  github_updates: { kind: 'github', permission: 'repos' },
+  github_notifications: { kind: 'github', permission: 'repos' },
+  x_timeline: { kind: 'x', permission: 'read' },
+  recent_files: { kind: 'files', permission: 'readable' },
+  file_search: { kind: 'files', permission: 'readable' },
+  file_read: { kind: 'files', permission: 'readable' },
+}).map(([operation, value]) => [operation, Object.freeze(value)])));

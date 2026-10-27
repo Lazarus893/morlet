@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "baseUrl": "http://127.0.0.1:3307",
+  "credentialFile": ".runtime/remote-client-auth.json",
+  "dedicatedClient": true,
+  "allowSessionControl": false,
+  "timeoutMs": 15000
+}

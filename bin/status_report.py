@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""各设备在线状态一览：出错时用它代替「发生错误」，让 Tony 一眼定位。
+"""各设备在线状态一览：出错时用它代替「发生错误」，让 用户 一眼定位。
 
 用法：status_report.py [--error CODE] [--json] [--fast]
   --error CODE  在报告开头写上这轮的错误码和一句定位提示
@@ -14,10 +14,14 @@ import re
 import subprocess
 import sys
 import time
+import socket
+import shutil
 import urllib.request
 from pathlib import Path
 
 from runtime_paths import ADB, DSH_HOME, PHONE_PROFILE as PROFILE_JSON, PROFILE_DIR, WORKSPACE, PORT, CONTROL_SOCKET
+from pa_config import load_config, device_config, agent_command
+from devices import probe_device
 CRED = DSH_HOME / ".credentials.yaml"
 WXDIR = PROFILE_DIR / "weixin"
 HELPER_PKG = "com.agent.helper"
@@ -41,14 +45,18 @@ def sh(cmd: list[str], timeout: float = 6) -> str:
 
 
 def check_dsh() -> dict:
-    pid = sh(["/usr/sbin/lsof", "-nP", f"-iTCP:{PORT}", "-sTCP:LISTEN", "-t"]).split("\n")[0].strip()
-    if not pid.isdigit():
+    try:
+        with socket.create_connection(("127.0.0.1", PORT), timeout=1):
+            return {"online": True, "detail": f"本机端口 {PORT} 正在监听（不代表模型/微信已验证）"}
+    except OSError:
         return {"online": False, "detail": f"端口 {PORT} 没有监听"}
-    started = sh(["ps", "-o", "lstart=", "-p", pid]).strip()
-    return {"online": True, "detail": f"pid {pid}，启动于 {started}"}
 
 
 def check_model(fast: bool) -> dict:
+    cfg = load_config()
+    if cfg["agent"]["provider"] != "dsh":
+        installed = bool(shutil.which(agent_command(cfg)))
+        return {"online": None if installed else False, "detail": f"{cfg['agent']['provider']} CLI {'已安装；未验证登录和模型' if installed else '未找到'}"}
     if fast:
         return {"online": None, "detail": "未探测（--fast）"}
     key = os.environ.get("DEEPSEEK_API_KEY")
@@ -70,26 +78,14 @@ def check_model(fast: bool) -> dict:
 
 
 def check_phone() -> dict:
-    did = os.environ.get("PHONE_AGENT_DEVICE_ID", "")
-    try:
-        did = did or json.loads(PROFILE_JSON.read_text()).get("device_config", {}).get("device_id", "")
-    except Exception:  # noqa: BLE001
-        pass
-    out = sh([ADB, "devices", "-l"])
-    rows = {l.split()[0]: l for l in out.splitlines()[1:] if l.strip()}
-    row = rows.get(did)
-    if row is None:
-        return {"online": False, "detail": f"{did or '?'} 未连接（adb 看不到）", "id": did, "state": "absent"}
-    state = row.split()[1]
-    if state != "device":
-        return {"online": False, "detail": f"{did} 状态 {state}（未授权 USB 调试或离线）", "id": did, "state": state}
-    model = re.search(r"model:(\S+)", row)
-    win = sh([ADB, "-s", did, "shell", "dumpsys window | grep -m1 mDreamingLockscreen"], 8)
-    locked = "mDreamingLockscreen=true" in win
-    return {"online": True, "detail": f"{did}（{model.group(1) if model else '?'}）{'锁屏中' if locked else '已解锁'}", "id": did, "state": "locked" if locked else "connected"}
+    result = probe_device(device_config())
+    result["online"] = result["state"] == "connected" if result["state"] != "disabled" else None
+    return result
 
 
 def check_app(phone: dict) -> dict:
+    if phone.get("provider") != "adb":
+        return {"online": None, "detail": "仅 Android 使用手机助手；iPhone 使用 WDA"}
     if not phone.get("online"):
         return {"online": None, "detail": "手机不在线，无法确认"}
     did = phone["id"]
@@ -114,12 +110,12 @@ def check_weixin() -> dict:
     sync = WXDIR / "sync.json"
     sock = CONTROL_SOCKET
     if not sock.exists():
-        return {"online": False, "detail": "控制 socket 不存在，通道插件没起来"}
+        return {"online": None, "detail": "当前执行环境看不到控制 socket，无法据此判断微信状态；消息入口状态请使用 xiaoman_status 查询宿主"}
     try:
         age = int(time.time() - sync.stat().st_mtime)
-        return {"online": True, "detail": f"iLink 游标 {age // 60} 分钟前更新"}
+        return {"online": None, "detail": f"控制 socket 存在，游标 {age // 60} 分钟前更新；不能据此确认实时收发"}
     except OSError:
-        return {"online": True, "detail": "socket 在，游标文件缺失（还没收过消息）"}
+        return {"online": None, "detail": "控制 socket 在，未验证实时微信收发"}
 
 
 def check_router() -> dict:
@@ -143,11 +139,23 @@ def main() -> None:
     ap.add_argument("--error", default=None)
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--fast", action="store_true")
+    ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
+    root = Path(__file__).resolve().parent.parent
+    command = [shutil.which("node") or "node", str(root / "scripts/status.mjs")]
+    if args.json: command.append("--json")
+    if args.verbose: command.append("--verbose")
+    result = subprocess.run(command, check=False)
+    if result.returncode == 0: return
+    # A failed truth query is not a green device check. No model call on fallback.
+    if not args.verbose:
+        report = {"light": "yellow", "summary": "状态暂不可核对，请运行 status --verbose 查看本机诊断。"}
+        print(json.dumps(report, ensure_ascii=False) if args.json else report["summary"])
+        return
     phone = check_phone()
     report = {
-        f"小满（Mac dsh {PORT}）": check_dsh(),
-        "模型 API（DeepSeek）": check_model(args.fast),
+        f"小满（本机通道宿主 {PORT}）": check_dsh(),
+        "Agent 核心": check_model(True),
         "手机": phone,
         "小满手机助手": check_app(phone),
         "微信通道（iLink）": check_weixin(),

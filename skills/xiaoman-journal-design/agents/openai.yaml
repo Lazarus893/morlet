@@ -1,0 +1,4 @@
+interface:
+  display_name: "小满生活手账设计"
+  short_description: "依据真实任务与阶段自动选择二十种手账组件，组合安静清楚的生活看板"
+  default_prompt: "使用 $xiaoman-journal-design，按当前生活事项的真实材料组合最小可用手账看板。"

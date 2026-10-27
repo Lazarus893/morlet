@@ -1,0 +1,12 @@
+{
+  "baseUrl": "https://nango.example.test",
+  "publicApiOrigin": "https://nango.example.test",
+  "connectOrigin": "https://connect.example.test",
+  "secretKeyEnv": "NANGO_SECRET_KEY",
+  "instanceId": "replace-with-a-stable-instance-id",
+  "integrations": {
+    "google": { "integrationId": "xiaoman-google" },
+    "github": { "integrationId": "xiaoman-github" },
+    "x": { "integrationId": "xiaoman-x" }
+  }
+}

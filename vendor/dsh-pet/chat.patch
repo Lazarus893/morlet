@@ -1,0 +1,130 @@
+--- a/src/host/index.ts
++++ b/src/host/index.ts
+@@ -60,6 +60,7 @@
+  * TODO(类型)：peer 依赖类型包本地暂不可解析，ctx/req/res 暂用 any；
+  *             依赖可解析后替换为 DSH 官方类型。
+  */
++import { xiaomanChat, blocksXiaomanHttpChat } from './xiaoman-chat.mjs';
+ import { createReadStream, existsSync, fstatSync, readFileSync } from 'node:fs';
+ import { readFile, mkdir, writeFile } from 'node:fs/promises';
+ import type { IncomingMessage, ServerResponse } from 'node:http';
+@@ -460,8 +461,11 @@
+   const chatWithPet = async (
+     petId: string,
+     text: string,
++    metadata: Record<string, unknown> = {},
+   ): Promise<{ ok: true } | { ok: false; reason: 'provider-missing' | 'generate-error'; message?: string }> =>
+     withMemoryLock(async () => {
++      const forwarded = await xiaomanChat(userRoot, petId, 'inbound', { text, ...metadata });
++      if (forwarded) return forwarded as any;
+       const cfg = readAllConfig(configPaths);
+       const rounds = memoryRounds(petId, cfg);
+       const found = findPetInstance(cfg, petId);
+@@ -1084,6 +1088,10 @@
+       const petId = String(url.searchParams.get('pet') ?? '');
+       try {
+         if (method === 'GET') {
++          const linked = await xiaomanChat(userRoot, petId, 'context');
++          if (linked) return { kind: 'json', status: 200, obj: linked };
++        }
++        if (method === 'GET') {
+           const cfg = readAllConfig(configPaths);
+           const mem = await readMemory();
+           const bucket = mem[findPetInstance(cfg, petId)?.entry ?? petId] ?? {};
+@@ -1106,7 +1114,8 @@
+               obj: { ok: false, reason: 'bad-request', message: '消息过长（限 2000 字）' },
+             };
+           }
+-          const result = await chatWithPet(petId, text);
++          const metadata = Object.fromEntries(['requestId', 'replyTo', 'entryId', 'reaction'].filter(k => parsed[k] !== undefined).map(k => [k, parsed[k]]));
++          const result = await chatWithPet(petId, text, metadata);
+           return { kind: 'json', status: 200, obj: result };
+         }
+         return { kind: 'json', status: 405, obj: { error: 'method not allowed' } };
+@@ -1213,6 +1222,10 @@
+         path: ROUTE_PREFIX,
+         handler: async (req: IncomingMessage, res: ServerResponse) => {
+           try {
++            if (blocksXiaomanHttpChat(userRoot, req.url ?? '/')) {
++              sendJson(res, 403, { ok: false, reason: 'desktop-only', message: '请使用桌宠右键「对话」' });
++              return;
++            }
+             const body = req.method === 'PUT' || req.method === 'POST' ? await readBody(req) : undefined;
+             const result = await handlePetRoute(req.url ?? '/', req.method ?? 'GET', body);
+             if (result.kind === 'json') sendJson(res, result.status, result.obj, result.headers);
+--- a/src/shared/chat.ts
++++ b/src/shared/chat.ts
+@@ -1,3 +1,4 @@
++import { attachXiaomanChat } from './xiaoman-chat-ui';
+ // 对话输入弹窗（src/shared，浏览器 bundle 与桌面 shared-core 共用）：
+ //  - 纯逻辑：类型 / 发送（走 host /dsh-pet-7340/chat，host 是 memory.json 唯一读写方
+ //    —— 浏览器与桌面同一实例天然共享同一份记忆，两端只是不同显示方式）；
+@@ -20,11 +21,11 @@
+ 
+ /** 发送一句对话（携带记忆去 host 生成回复并写入记忆）。
+  *  网络/解析失败显式抛错（调用方决定报错方式，绝不静默伪造）。 */
+-export async function sendChat(baseUrl: string, text: string): Promise<ChatSendState> {
++export async function sendChat(baseUrl: string, text: string, metadata: Record<string, unknown> = {}): Promise<ChatSendState> {
+   const res = await fetch(baseUrl, {
+     method: 'POST',
+     headers: { 'content-type': 'application/json' },
+-    body: JSON.stringify({ text }),
++    body: JSON.stringify({ text, ...metadata }),
+     signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+   });
+   const raw: unknown = await res.json().catch(() => null);
+@@ -166,6 +167,7 @@
+     closed = true;
+     document.removeEventListener('mousedown', onDocPointerDown, true);
+     document.removeEventListener('keydown', onDocKeyDown, true);
++    xiaoman?.close();
+     root.remove();
+     if (onClose) onClose();
+   };
+@@ -181,15 +183,17 @@
+   document.addEventListener('mousedown', onDocPointerDown, true);
+   document.addEventListener('keydown', onDocKeyDown, true);
+ 
+-  const doSend = (): void => {
+-    if (closed || sending) return;
+-    const text = input.value.trim();
++  let xiaoman: ReturnType<typeof attachXiaomanChat>;
++  const doSend = (message?: string, metadata: Record<string, unknown> = {}): void => {
++    if (closed || sending || input.disabled) return;
++    const text = message ?? input.value.trim();
+     if (!text) return;
+     sending = true;
+     input.disabled = true;
+-    sendChat(withPet, text)
++    Promise.resolve().then(() => sendChat(withPet, text, xiaoman.payload(text, metadata)))
+       .then((state) => {
+         if (state.ok) {
++          xiaoman.accepted();
+           close();
+           if (onSent) onSent();
+         } else {
+@@ -207,6 +211,7 @@
+         if (!closed) input.focus();
+       });
+   };
++  xiaoman = attachXiaomanChat({ root, input, err, url: withPet, send: doSend, clamp: c, x, y });
+   input.addEventListener('keydown', (e) => {
+     if (e.key === 'Enter') {
+       e.preventDefault();
+--- a/src/shared/menu.ts
++++ b/src/shared/menu.ts
+@@ -235,6 +235,14 @@
+           showPanel(childPanel, item);
+         });
+       } else {
++        item.setAttribute('role', 'button');
++        item.tabIndex = 0;
++        item.addEventListener('keydown', (e) => {
++          if (e.key === 'Enter' || e.key === ' ') {
++            e.preventDefault();
++            item.click();
++          }
++        });
+         const label = document.createElement('span');
+         label.textContent = node.label;
+         item.appendChild(label);

@@ -1,0 +1,96 @@
+/* Connections show status first; permissions and maintenance stay on demand. */
+.connections-center { margin: 0 0 32px; }
+.c-overview { display: flex; align-items: center; justify-content: flex-end; gap: 16px; padding: 4px 0 16px; }
+.c-bridge { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px; padding: 8px 0; }
+.c-bridge strong { font-size: 14px; font-weight: 550; overflow-wrap: anywhere; }
+.c-bridge small { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.c-bridge button { margin-left: auto; font-size: 13px; }
+.c-state { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 13px; white-space: nowrap; }
+.c-state::before { content: ''; width: 5px; height: 5px; flex: none; border-radius: 50%; background: currentColor; }
+.c-state-connected { color: var(--accent); }
+.c-state-limited, .c-state-expired, .c-state-error, .c-state-offline, .c-state-setup_required { color: var(--warning); }
+.c-state-awaiting_authorization, .c-state-checking { color: var(--accent); }
+.c-monitor { display: flex; align-items: center; gap: 16px; margin: 0 0 12px; }
+.c-monitor[hidden], .c-monitor button[hidden] { display: none; }
+.c-monitor p { font-size: 14px; color: var(--warning); }
+.c-monitor button { flex: none; font-size: 14px; }
+.c-status { color: var(--accent); font-size: 14px; margin-top: 12px; overflow-wrap: anywhere; }
+.c-status:empty { display: none; }
+.c-integration-error { color: var(--warning); font-size: 14px; line-height: 1.7; overflow-wrap: anywhere; }
+.c-integration-error[hidden] { display: none; }
+.c-grid { border-top: 1px solid var(--line); }
+.c-card { position: relative; min-width: 0; padding: 18px 0; border-bottom: 1px solid var(--line); }
+.c-card-summary { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto auto; align-items: center; gap: 14px; min-height: 44px; }
+.c-card:has(> .c-permissions) .c-card-summary { padding-right: 72px; }
+.c-card-summary > svg { color: var(--accent); }
+.c-card h3 { font-size: 16px; font-weight: 550; line-height: 1.5; }
+.c-card-identity { min-width: 0; }
+.c-account { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.c-message { font-size: 14px; margin: 8px 0 0 38px; line-height: 1.7; overflow-wrap: anywhere; color: var(--warning); }
+.c-permissions { margin: 0; }
+.c-permissions > summary { position: absolute; right: 0; top: 18px; min-height: 44px; display: flex; align-items: center; justify-content: flex-end; gap: 6px; cursor: pointer; font-size: 14px; color: var(--accent); list-style: none; }
+.c-permissions > summary::after { content: '+'; }
+.c-permissions[open] > summary::after { content: '−'; }
+.c-permissions summary::-webkit-details-marker { display: none; }
+.c-management { margin: 16px 0 0 38px; padding: 16px 0 0; border-top: 1px solid var(--line); }
+.c-management p { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.c-management ul { padding: 0; margin: 12px 0 0; list-style: none; }
+.c-management li { font-size: 13px; display: flex; justify-content: space-between; gap: 16px; padding: 5px 0; }
+.c-management li span:last-child { color: var(--muted); text-align: right; }
+.c-card-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin-top: 12px; }
+.c-card-actions button, .c-card-summary > button { font-size: 14px; }
+.c-last { margin-top: 12px; font-variant-numeric: tabular-nums; }
+.c-help, .c-events { margin-top: 16px; }
+.c-help summary, .c-events summary { min-height: 44px; display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--accent); cursor: pointer; }
+.c-help summary::before, .c-events summary::before { content: '+'; }
+.c-help[open] > summary::before, .c-events[open] > summary::before { content: '−'; }
+.c-help summary::-webkit-details-marker, .c-events summary::-webkit-details-marker { display: none; }
+.c-help p { font-size: 13px; color: var(--muted); line-height: 1.8; margin: 8px 0; }
+.c-help code { overflow-wrap: anywhere; }
+.c-events ol { list-style: none; padding: 0; margin: 4px 0; }
+.c-events li { display: flex; justify-content: space-between; gap: 14px; padding: 9px 0; font-size: 13px; }
+.c-events time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.c-dialog { padding: 24px 28px 28px; }
+.c-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.c-dialog-head h2 { font-size: 24px; font-weight: 500; }
+.c-dialog p { font-size: 14px; line-height: 1.8; }
+.c-dialog-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 24px; }
+.c-dialog #c-reload-version { margin-top: 10px; }
+.c-auth { margin-top: 16px; }
+.c-auth-link { font-size: 14px; }
+.c-auth-error { color: var(--warning); }
+.c-code { font-size: 20px; letter-spacing: .1em; }
+.c-auth small { color: var(--muted); font-size: 12px; }
+.c-scope-list { padding-left: 20px; font-size: 14px; line-height: 1.9; }
+.c-scope-callout { padding: 16px; background: var(--soft); border-radius: 8px; }
+.c-directory-list { padding: 0; margin: 10px 0 0; list-style: none; }
+.c-directory-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 16px; padding: 4px 0; }
+.c-directory-list code { text-align: right; overflow-wrap: anywhere; }
+.c-file-actions { align-items: center; }
+.c-file-actions > form { margin: 0; }
+.connections-center[aria-busy=true] { cursor: progress; }
+.connections-center button:active:not(:disabled) { transform: translateY(1px); }
+@media (max-width: 700px) {
+  .c-card-summary { grid-template-columns: 24px minmax(0, 1fr) auto; gap: 5px 12px; }
+  .c-card-summary > svg { grid-row: 1 / 3; }
+  .c-card-summary > .c-state { grid-column: 2; grid-row: 2; font-size: 14px; }
+  .c-card-summary > button { grid-column: 3; grid-row: 1 / 3; }
+  .c-card:has(> .c-permissions) .c-card-summary { padding-right: 60px; }
+  .c-account { font-size: 14px; }
+  .c-message, .c-management { margin-left: 36px; }
+  .c-management p, .c-management li, .c-help p, .c-bridge small { font-size: 14px; }
+  .c-dialog { padding: 18px 20px 22px; }
+  .c-dialog-head h2 { font-size: 22px; }
+  .c-dialog p { font-size: 15px; }
+  .c-events li { flex-wrap: wrap; gap: 3px; }
+  .c-dialog-actions button { max-width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .connections-center button:active:not(:disabled) { transform: none; }
+  .connections-center * { animation: none !important; transition: none !important; }
+}
+html[data-motion=off] .connections-center button:active:not(:disabled), html[data-motion=reduced] .connections-center button:active:not(:disabled) { transform: none; }
+.c-routine-usage { margin: 10px 0; padding-top: 10px; border-top: 1px solid var(--line); }
+.c-routine-usage a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.c-routine-usage li { display: flex; justify-content: space-between; gap: 12px; }
+.c-routine-usage li span { color: var(--muted); white-space: nowrap; }

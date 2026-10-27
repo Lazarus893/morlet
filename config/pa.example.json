@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "owner": "用户",
+  "agent": {
+    "provider": "dsh",
+    "model_provider": "deepseek-official",
+    "command": "",
+    "model": "",
+    "timeout_seconds": 300
+  },
+  "persona": {
+    "prefix": "你是小满中配置的助理。依据职责、用户请求和实际可用工具完成任务；能力不足时说明阻塞，不虚构执行结果。",
+    "suffix": "你的工作目录是 {{cwd}}。根据当前消息入口组织回复；准确区分已记录、执行中和已完成。"
+  },
+  "im": {
+    "provider": "weixin",
+    "access_policy": "allowlist",
+    "allow_from": []
+  },
+  "device": {
+    "provider": "none",
+    "id": "",
+    "wda_url": "http://127.0.0.1:8100"
+  },
+  "capabilities": {
+    "disabled": [],
+    "extra_skills": []
+  },
+  "proactive": {
+    "enabled": true,
+    "timezone": "local",
+    "quiet_start": "22:00",
+    "quiet_end": "09:00",
+    "max_daily": 2,
+    "min_gap_minutes": 180,
+    "idle_minutes": 5,
+    "day1_delay_minutes": 10,
+    "max_chars": 180,
+    "max_observations_daily": 40,
+    "context_ttl_hours": 24
+  }
+}

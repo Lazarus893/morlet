@@ -17,7 +17,8 @@ function resolveControlSocketPath(configured) {
   return isAbsolute(value) ? value : resolve(value);
 }
 var WeixinControlServer = class {
-  constructor(socketPath, requestLogin, log) {
+  constructor(socketPath, requestLogin, log, manage) {
+    this.manage = manage;
     this.socketPath = socketPath;
     this.requestLogin = requestLogin;
     this.log = log;
@@ -119,6 +120,10 @@ var WeixinControlServer = class {
       request = JSON.parse(line);
     } catch {
       return { ok: false, error: "invalid control request" };
+    }
+    if (request?.command === "pa" && this.manage) {
+      try { return { ok: true, kind: "pa", data: await this.manage(request) }; }
+      catch (error) { return { ok: false, error: error.code || "MANAGEMENT_FAILED" }; }
     }
     if (isLoginRequest(request)) {
       const result = await this.requestLogin(signal, false);

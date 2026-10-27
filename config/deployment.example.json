@@ -1,0 +1,12 @@
+{
+  "install_dir": "/opt/xiaoman",
+  "service_user": "xiaoman",
+  "service_group": "xiaoman",
+  "nginx_user": "www-data",
+  "node_command": "/usr/bin/node",
+  "nginx_command": "/usr/sbin/nginx",
+  "public_host": "xiaoman.example.invalid",
+  "public_port": 3083,
+  "web_port": 3084,
+  "dsh_port": 3082
+}

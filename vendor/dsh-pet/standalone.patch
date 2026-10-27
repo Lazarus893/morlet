@@ -1,0 +1,38 @@
+--- a/src/standalone/server.ts
++++ b/src/standalone/server.ts
+@@ -41,7 +41,6 @@
+ }
+ 
+ const CORS_HEADERS: Record<string, string> = {
+-  'access-control-allow-origin': '*',
+   'access-control-allow-methods': 'GET, POST, OPTIONS',
+   'access-control-allow-headers': 'content-type',
+   'access-control-max-age': '600',
+@@ -98,6 +97,13 @@
+ ): (req: IncomingMessage, res: ServerResponse) => void {
+   const { routes, logger, status, onShutdown } = options;
+   return (req, res) => {
++    // Only this user's local bridge may call the standalone control surface.
++    const expectedHost = '127.0.0.1:' + req.socket.localPort;
++    if (req.headers.host !== expectedHost || req.headers.origin ||
++        req.headers['sec-fetch-site'] && req.headers['sec-fetch-site'] !== 'none') {
++      sendJson(res, 403, { error: 'FORBIDDEN' });
++      return;
++    }
+     const method = req.method ?? 'GET';
+     const pathname = pathnameOf(req.url);
+     logger.debug(`${method} ${pathname}`);
+--- a/runtime/electron-helper/main.js
++++ b/runtime/electron-helper/main.js
+@@ -67,6 +67,11 @@
+ // "Electron"，userData 便落到 %APPDATA%\Electron —— 那是所有这么跑的 Electron 脚本的公共目录，
+ // 我们的 DPI 缓存与 Chromium profile 都会和别人混在一起。必须赶在任何 getPath('userData') 之前设。
+ app.setName('dsh-pet-electron-helper');
++// Each Xiaoman installation has its own Chromium profile and DPI cache.
++if (process.env.DSH_PET_USER_DATA) {
++  if (!path.isAbsolute(process.env.DSH_PET_USER_DATA)) throw new Error('Invalid pet userData');
++  app.setPath('userData', process.env.DSH_PET_USER_DATA);
++}
+ 
+ /** DPI 探测子进程模式：不建窗口，只把主屏 scaleFactor 打到 stdout 就退出（见 probePrimaryScale） */
+ const DPI_PROBE = process.env.DSH_PET_DPI_PROBE === '1';

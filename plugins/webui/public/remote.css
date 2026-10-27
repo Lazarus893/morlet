@@ -1,0 +1,62 @@
+/* A single reading pane reuses the notebook's paper, type and controls. */
+.remote-center { margin-top: 28px; border-bottom: 1px solid var(--line); padding-bottom: 20px; min-width: 0; }
+.r-heading, .r-session-heading, .r-device-controls, .r-compose-actions, .r-approval-actions { display: flex; align-items: center; gap: 12px; }
+.r-heading h2 { margin: 0 auto 0 0; font-size: 18px; font-weight: 550; }
+.r-heading button, .remote-center button { font-size: 14px; }
+.r-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: 12px 0; color: var(--warning); font-size: 14px; }
+.r-notice:has(p:empty):has(button[hidden]):not(:has(button:not([hidden]))) { display: none; }
+.r-notice p { margin: 0; overflow-wrap: anywhere; }
+.r-device { margin: 8px 0; }
+.r-device > summary { min-height: 44px; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; cursor: pointer; list-style: none; }
+.r-device > summary::before { content: '+'; }
+.r-device[open] > summary::before { content: '−'; }
+.r-device summary::-webkit-details-marker { display: none; }
+.r-device-controls { flex-wrap: wrap; padding: 0 0 12px; }
+.r-device-controls p { margin-right: auto; font-size: 14px; color: var(--muted); }
+#r-workspace-form { margin: 4px 0 16px; }
+#r-workspace-form label, #r-compose label, .r-device-picker label { display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; }
+.r-device-picker { margin-bottom: 12px; }
+.r-device-picker select { width: 100%; }
+.r-workspace-row { display: flex; align-items: center; gap: 12px; }
+.r-workspace-row select { min-width: 0; width: 100%; }
+.r-workspace-row button { flex: none; white-space: nowrap; }
+.r-sessions { list-style: none; padding: 0; margin: 0; }
+#r-search { width: 100%; min-height: 44px; margin: 4px 0 12px; }
+[data-r-action="more-sessions"] { margin-top: 8px; }
+.r-sessions li { border-top: 1px solid var(--line); }
+.r-session-link { display: flex; justify-content: space-between; align-items: center; gap: 20px; width: 100%; min-height: 56px; padding: 12px 0; border: 0; border-radius: 0; background: none; text-align: left; color: var(--ink); }
+.r-session-link > span { min-width: 0; overflow-wrap: anywhere; line-height: 1.6; }
+.r-session-link small { flex: none; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.r-session-link:hover { color: var(--accent); }
+.r-empty { font-size: 14px; color: var(--muted); padding: 12px 0; }
+.r-empty:empty { display: none; }
+.r-session-heading { flex-wrap: wrap; margin: 4px 0 12px; }
+.r-session-heading h3 { flex: 1; min-width: 140px; font-size: 16px; font-weight: 550; overflow-wrap: anywhere; }
+.r-session-heading button { padding-left: 0; }
+.r-history { max-height: 420px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding-right: 12px; margin-bottom: 20px; }
+.r-message { margin: 0; padding: 16px 0; }
+.r-message + .r-message { border-top: 1px solid var(--line); }
+.r-speaker { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+.r-message small { color: var(--warning); font-size: 13px; }
+.r-message-user { padding-left: 16px; border-left: 2px solid var(--line); }
+.r-approval { border-top: 1px solid var(--line); padding: 16px 0; }
+.r-approval h4 { margin: 0 0 8px; font-size: 16px; font-weight: 550; }
+.r-approval p { font-size: 14px; }
+.r-approval-unavailable { color: var(--warning); }
+.r-approval pre { margin: 8px 0 12px; padding: 12px; background: var(--soft); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.7; }
+.r-review-arguments { max-height: 360px; overflow-y: auto; }
+#r-input { box-sizing: border-box; resize: vertical; min-height: 80px; max-height: 240px; width: 100%; font: inherit; line-height: 1.6; padding: 10px 12px; border: 1px solid #6d8071; background: var(--paper); color: var(--ink); border-radius: 8px; outline-offset: 4px; }
+#r-input:focus-visible { outline: 2px solid var(--accent); }
+.r-compose-actions { margin-top: 12px; flex-wrap: wrap; }
+#r-turn-state { margin-right: auto; font-size: 14px; color: var(--muted); }
+.remote-center [hidden] { display: none !important; }
+@media (max-width: 700px) {
+  .remote-center { margin-top: 24px; }
+  .r-heading { gap: 10px; }
+  .r-session-link { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .r-session-link small, .r-speaker { font-size: 14px; }
+  .r-history { max-height: 340px; padding-right: 8px; }
+  .r-session-heading { gap: 8px; }
+  .r-approval pre { font-size: 14px; }
+  .r-workspace-row { gap: 8px; }
+}

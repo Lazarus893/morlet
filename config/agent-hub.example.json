@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "agents": [
+    {"id": "dsh", "label": "DSH", "provider": "dsh", "workspace": ".runtime/workspace", "agentPreset": "xiaoman", "permissionPreset": "workspace-write", "timeout_seconds": 300}
+  ],
+  "roles": {"conversation": "dsh", "observer": "dsh", "followup": "dsh", "journalDesigner": "dsh"}
+}

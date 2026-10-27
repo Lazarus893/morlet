@@ -88,8 +88,8 @@ def get_screenshot(device_id: str | None = None, timeout: int = 10) -> Screensho
 def _get_adb_prefix(device_id: str | None) -> list:
     """Get ADB command prefix with optional device specifier."""
     if device_id:
-        return ["adb", "-s", device_id]
-    return ["adb"]
+        return [os.environ.get("ADB", "adb"), "-s", device_id]
+    return [os.environ.get("ADB", "adb")]
 
 
 def _create_fallback_screenshot(is_sensitive: bool) -> Screenshot:

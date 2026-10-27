@@ -34,6 +34,10 @@ def check(root=ROOT):
                 json.loads(content)
             except json.JSONDecodeError as error:
                 errors.append(f"{relative}: {error}")
+        if path.suffix in {".js", ".mjs"}:
+            result = subprocess.run(["node", "--check", str(path)], capture_output=True, text=True)
+            if result.returncode:
+                errors.append(f"{relative}: {result.stderr}")
     for path in (root / "scripts/pa.sh", root / "bin/shared_sync.sh"):
         result = subprocess.run(["bash", "-n", str(path)], capture_output=True, text=True)
         if result.returncode:

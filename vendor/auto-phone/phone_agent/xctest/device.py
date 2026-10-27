@@ -2,11 +2,21 @@
 
 import subprocess
 import time
+from functools import lru_cache
 from typing import Optional
 
 from phone_agent.config.apps_ios import APP_PACKAGES_IOS as APP_PACKAGES
 
-SCALE_FACTOR = 3 # 3 for most modern iPhone 
+@lru_cache(maxsize=8)
+def screen_scale(wda_url: str) -> float:
+    """Use the connected device's pixel/point ratio; iPhones can be 2x or 3x."""
+    from phone_agent.xctest import http as requests
+    response = requests.get(f"{wda_url.rstrip('/')}/wda/screen", timeout=5)
+    response.raise_for_status()
+    scale = response.json()["value"]["scale"]
+    if not isinstance(scale, (int, float)) or isinstance(scale, bool) or not 1 <= scale <= 4:
+        raise RuntimeError("WDA returned an invalid screen scale")
+    return float(scale)
 
 def _get_wda_session_url(wda_url: str, session_id: str | None, endpoint: str) -> str:
     """
@@ -42,11 +52,11 @@ def get_current_app(
         The app name if recognized, otherwise "System Home".
     """
     try:
-        import requests
+        from phone_agent.xctest import http as requests
 
         # Get active app info from WDA using activeAppInfo endpoint
         response = requests.get(
-            f"{wda_url.rstrip('/')}/wda/activeAppInfo", timeout=5, verify=False
+            f"{wda_url.rstrip('/')}/wda/activeAppInfo", timeout=5
         )
 
         if response.status_code == 200:
@@ -67,7 +77,7 @@ def get_current_app(
     except ImportError:
         print("Error: requests library required. Install: pip install requests")
     except Exception as e:
-        print(f"Error getting current app: {e}")
+        raise RuntimeError("WebDriverAgent operation failed") from e
 
     return "System Home"
 
@@ -90,7 +100,7 @@ def tap(
         delay: Delay in seconds after tap.
     """
     try:
-        import requests
+        from phone_agent.xctest import http as requests
 
         url = _get_wda_session_url(wda_url, session_id, "actions")
 
@@ -102,7 +112,7 @@ def tap(
                     "id": "finger1",
                     "parameters": {"pointerType": "touch"},
                     "actions": [
-                        {"type": "pointerMove", "duration": 0, "x": x / SCALE_FACTOR, "y": y / SCALE_FACTOR},
+                        {"type": "pointerMove", "duration": 0, "x": x / screen_scale(wda_url), "y": y / screen_scale(wda_url)},
                         {"type": "pointerDown", "button": 0},
                         {"type": "pause", "duration": 0.1},
                         {"type": "pointerUp", "button": 0},
@@ -111,14 +121,14 @@ def tap(
             ]
         }
 
-        requests.post(url, json=actions, timeout=15, verify=False)
+        requests.post(url, json=actions, timeout=15)
 
         time.sleep(delay)
 
     except ImportError:
         print("Error: requests library required. Install: pip install requests")
     except Exception as e:
-        print(f"Error tapping: {e}")
+        raise RuntimeError("WebDriverAgent operation failed") from e
 
 
 def double_tap(
@@ -139,7 +149,7 @@ def double_tap(
         delay: Delay in seconds after double tap.
     """
     try:
-        import requests
+        from phone_agent.xctest import http as requests
 
         url = _get_wda_session_url(wda_url, session_id, "actions")
 
@@ -151,7 +161,7 @@ def double_tap(
                     "id": "finger1",
                     "parameters": {"pointerType": "touch"},
                     "actions": [
-                        {"type": "pointerMove", "duration": 0, "x": x / SCALE_FACTOR, "y": y / SCALE_FACTOR},
+                        {"type": "pointerMove", "duration": 0, "x": x / screen_scale(wda_url), "y": y / screen_scale(wda_url)},
                         {"type": "pointerDown", "button": 0},
                         {"type": "pause", "duration": 100},
                         {"type": "pointerUp", "button": 0},
@@ -164,14 +174,14 @@ def double_tap(
             ]
         }
 
-        requests.post(url, json=actions, timeout=10, verify=False)
+        requests.post(url, json=actions, timeout=10)
 
         time.sleep(delay)
 
     except ImportError:
         print("Error: requests library required. Install: pip install requests")
     except Exception as e:
-        print(f"Error double tapping: {e}")
+        raise RuntimeError("WebDriverAgent operation failed") from e
 
 
 def long_press(
@@ -194,7 +204,7 @@ def long_press(
         delay: Delay in seconds after long press.
     """
     try:
-        import requests
+        from phone_agent.xctest import http as requests
 
         url = _get_wda_session_url(wda_url, session_id, "actions")
 
@@ -209,7 +219,7 @@ def long_press(
                     "id": "finger1",
                     "parameters": {"pointerType": "touch"},
                     "actions": [
-                        {"type": "pointerMove", "duration": 0, "x": x / SCALE_FACTOR, "y": y / SCALE_FACTOR},
+                        {"type": "pointerMove", "duration": 0, "x": x / screen_scale(wda_url), "y": y / screen_scale(wda_url)},
                         {"type": "pointerDown", "button": 0},
                         {"type": "pause", "duration": duration_ms},
                         {"type": "pointerUp", "button": 0},
@@ -218,14 +228,14 @@ def long_press(
             ]
         }
 
-        requests.post(url, json=actions, timeout=int(duration + 10), verify=False)
+        requests.post(url, json=actions, timeout=int(duration + 10))
 
         time.sleep(delay)
 
     except ImportError:
         print("Error: requests library required. Install: pip install requests")
     except Exception as e:
-        print(f"Error long pressing: {e}")
+        raise RuntimeError("WebDriverAgent operation failed") from e
 
 
 def swipe(
@@ -252,7 +262,7 @@ def swipe(
         delay: Delay in seconds after swipe.
     """
     try:
-        import requests
+        from phone_agent.xctest import http as requests
 
         if duration is None:
             # Calculate duration based on distance
@@ -264,21 +274,21 @@ def swipe(
 
         # WDA dragfromtoforduration API payload
         payload = {
-            "fromX": start_x / SCALE_FACTOR,
-            "fromY": start_y / SCALE_FACTOR,
-            "toX": end_x / SCALE_FACTOR,
-            "toY": end_y / SCALE_FACTOR,
+            "fromX": start_x / screen_scale(wda_url),
+            "fromY": start_y / screen_scale(wda_url),
+            "toX": end_x / screen_scale(wda_url),
+            "toY": end_y / screen_scale(wda_url),
             "duration": duration,
         }
 
-        requests.post(url, json=payload, timeout=int(duration + 10), verify=False)
+        requests.post(url, json=payload, timeout=int(duration + 10))
 
         time.sleep(delay)
 
     except ImportError:
         print("Error: requests library required. Install: pip install requests")
     except Exception as e:
-        print(f"Error swiping: {e}")
+        raise RuntimeError("WebDriverAgent operation failed") from e
 
 
 def back(
@@ -299,27 +309,28 @@ def back(
         by swiping from the left edge of the screen.
     """
     try:
-        import requests
+        from phone_agent.xctest import http as requests
 
         url = _get_wda_session_url(wda_url, session_id, "wda/dragfromtoforduration")
 
         # Swipe from left edge to simulate back gesture
+        width, height = get_screen_size(wda_url, session_id)
         payload = {
             "fromX": 0,
-            "fromY": 640,
-            "toX": 400,
-            "toY": 640,
+            "fromY": height / 2,
+            "toX": width * 0.8,
+            "toY": height / 2,
             "duration": 0.3,
         }
 
-        requests.post(url, json=payload, timeout=10, verify=False)
+        requests.post(url, json=payload, timeout=10)
 
         time.sleep(delay)
 
     except ImportError:
         print("Error: requests library required. Install: pip install requests")
     except Exception as e:
-        print(f"Error performing back gesture: {e}")
+        raise RuntimeError("WebDriverAgent operation failed") from e
 
 
 def home(
@@ -336,18 +347,18 @@ def home(
         delay: Delay in seconds after pressing home.
     """
     try:
-        import requests
+        from phone_agent.xctest import http as requests
 
         url = f"{wda_url.rstrip('/')}/wda/homescreen"
 
-        requests.post(url, timeout=10, verify=False)
+        requests.post(url, timeout=10)
 
         time.sleep(delay)
 
     except ImportError:
         print("Error: requests library required. Install: pip install requests")
     except Exception as e:
-        print(f"Error pressing home: {e}")
+        raise RuntimeError("WebDriverAgent operation failed") from e
 
 
 def launch_app(
@@ -372,13 +383,13 @@ def launch_app(
         return False
 
     try:
-        import requests
+        from phone_agent.xctest import http as requests
 
         bundle_id = APP_PACKAGES[app_name]
         url = _get_wda_session_url(wda_url, session_id, "wda/apps/launch")
 
         response = requests.post(
-            url, json={"bundleId": bundle_id}, timeout=10, verify=False
+            url, json={"bundleId": bundle_id}, timeout=10
         )
 
         time.sleep(delay)
@@ -388,8 +399,7 @@ def launch_app(
         print("Error: requests library required. Install: pip install requests")
         return False
     except Exception as e:
-        print(f"Error launching app: {e}")
-        return False
+        raise RuntimeError("WebDriverAgent operation failed") from e
 
 
 def get_screen_size(
@@ -403,29 +413,30 @@ def get_screen_size(
         session_id: Optional WDA session ID.
 
     Returns:
-        Tuple of (width, height). Returns (375, 812) as default if unable to fetch.
+        Tuple of (width, height) in WDA points. Invalid geometry raises an error.
     """
     try:
-        import requests
+        from phone_agent.xctest import http as requests
 
         url = _get_wda_session_url(wda_url, session_id, "window/size")
 
-        response = requests.get(url, timeout=5, verify=False)
+        response = requests.get(url, timeout=5)
 
         if response.status_code == 200:
             data = response.json()
             value = data.get("value", {})
-            width = value.get("width", 375)
-            height = value.get("height", 812)
+            width = value["width"]
+            height = value["height"]
+            if width <= 0 or height <= 0:
+                raise RuntimeError("WDA returned invalid screen dimensions")
             return width, height
 
     except ImportError:
         print("Error: requests library required. Install: pip install requests")
     except Exception as e:
-        print(f"Error getting screen size: {e}")
+        raise RuntimeError("WebDriverAgent operation failed") from e
 
-    # Default iPhone screen size (iPhone X and later)
-    return 375, 812
+    raise RuntimeError("WDA screen size unavailable")
 
 
 def press_button(
@@ -444,15 +455,15 @@ def press_button(
         delay: Delay in seconds after pressing.
     """
     try:
-        import requests
+        from phone_agent.xctest import http as requests
 
         url = f"{wda_url.rstrip('/')}/wda/pressButton"
 
-        requests.post(url, json={"name": button_name}, timeout=10, verify=False)
+        requests.post(url, json={"name": button_name}, timeout=10)
 
         time.sleep(delay)
 
     except ImportError:
         print("Error: requests library required. Install: pip install requests")
     except Exception as e:
-        print(f"Error pressing button: {e}")
+        raise RuntimeError("WebDriverAgent operation failed") from e

@@ -8,6 +8,7 @@ utility commands via ADB broadcasts.
 import json
 import logging
 import shlex
+import os
 import subprocess
 import time
 from dataclasses import dataclass
@@ -69,8 +70,8 @@ class CompanionClient:
     def _get_adb_prefix(self) -> list[str]:
         """Get ADB command prefix with optional device specifier."""
         if self.device_id:
-            return ["adb", "-s", self.device_id]
-        return ["adb"]
+            return [os.environ.get("ADB", "adb"), "-s", self.device_id]
+        return [os.environ.get("ADB", "adb")]
 
     def _adb(self, *args: str, timeout: int = 10) -> str:
         """

@@ -9,8 +9,8 @@
   {
     "id": "system-prompt",
     "config": {
-      "personaPrefix": "你是「小满」，Tony 的私人生活助理，通过微信私聊和他对话。 你由 {{model}} 驱动，运行在 Tony 自己的 Mac 上。 你不是编程助手：代码、部署、工程问题一律简短回绝并建议他去找编程助手。",
-      "personaSuffix": "你的工作目录是 {{cwd}}。 回复在微信里显示，微信只认部分 Markdown：不用标题、表格、代码块， 列表用「1. 2. 3.」或换行，链接直接贴原文。"
+      "personaPrefix": "{{PERSONA_PREFIX}}",
+      "personaSuffix": "{{PERSONA_SUFFIX}}"
     }
   },
   {
@@ -25,6 +25,18 @@
     "config": {
       "timeoutMs": 420000,
       "maxTimeoutMs": 900000
+    }
+  },
+  {
+    "id": "web-fetch-http",
+    "config": {
+      "maxBodyChars": 1000000
+    }
+  },
+  {
+    "id": "tool-web",
+    "config": {
+      "fetchMaxOutputChars": 1000000
     }
   },
   {

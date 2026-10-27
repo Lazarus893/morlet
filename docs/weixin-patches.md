@@ -30,3 +30,49 @@
 - 移除过期 source map 和旧部署备份，避免调试时误指向修改前源码。
 - 主 runtime 固定为 dsh 0.1.5-rc.1，详细版本见 package-lock.json。
 - 清理已经没有调用处的 `resolveSessionPreset` import；新版本 dsh 不再导出它，独立安装到同一套 runtime 时会因此加载失败。旧部署恰好从另一套旧 peer 包解析了该 import。
+
+## 9. 可插拔 Agent 核心与本机配对（2026-10-10）
+
+- 新增 `agentAdapterModule` 配置：外部核心加载项目内 Conversation 实现；空值继续使用 DSH 原生 manager。微信登录、去重、文件下载/发送和范围校验继续由原插件负责。
+- Codex/WorkBuddy 图片入站保存为工作区私有文件，把路径交给原生图片/文件工具。出站仍经过 collectOutboundFiles，不允许跨工作区发送。
+- 外部核心工具审批复用 WeixinApprovalRegistry，按原会话一次性短码决定；取消、关闭、超时仍拒绝。没有添加自动批准路径。
+- 发行配置默认 accessPolicy=allowlist、空白名单。未授权来信仅在 pairingRequestPath 记录 userId/首次时间，用本机 pending-users 核对；不保存正文、不回复陌生人。
+- 会话和状态文案改为 Agent/PA，不再把 Codex/WorkBuddy 会话误称为 DSH Web 会话。
+- 配置模板由 scripts/configure.py 生成模块绝对路径；不用任何开发者私有路径。
+- 主 runtime 与 npm 锁定版本不变；离线 provider/审批/白名单/附件测试见 tests/agent_bridge.test.mjs，宿主启动见 scripts/smoke.py。
+
+## 10. 观察者、狙击者与主动跟进（2026-10-10）
+
+- `proactiveModule` / `proactiveConfigPath` 加载项目内服务，跟随微信连接启动/停止；初始化异常不影响普通聊天。显式扫码清除旧发送上下文。
+- 白名单和入站去重之后才更新主动台账；模型不接触 context token。Day 1 开场、时间门控、台账和限频在独立模块中。
+- `/pa` 与自然语言控制词直接处理，不交模型；暂停、完成、取消可绕过普通消息容量限制。普通聊天和观察并行，明确提醒先取得持久化回执。
+- 用户活跃计数阻止插话；取消/新会话在异步 I/O 前作废旧请求，防止迟到的观察结果启动新一轮回复。
+- 主动文本只调用一次 sendText，不经过普通回复的自动重试；超时不推定失败或盲目重发，接口成功也不称为已读。
+- 离线覆盖见 tests/proactive.test.mjs；产品规则和限制见 docs/proactive.md。原宿主版本与运行实例未修改。
+
+## Web 管理接口（方案 B）
+
+- `dist/chunk-KCZ7FGE3.js` 的本机控制 socket 增加可选管理回调和 `pa` 命令；原有 login/wait-login 协议保持不变。访问仍受 Unix socket 0600 权限保护。
+- `dist/index.js` 的 bridge 返回协议版本、配置版本、当前账号散列及脱敏用户快照。修改请求必须匹配当前账号，由主动引擎串行提交，并沿用发信人白名单与台账租约。
+- 新配置 `paConfigRevision` / `paProvider` 由 configure 生成。相关声明同步到 `dist/index.d.ts`。
+- 暴露最近收取消息的时间与分类连接错误（网络、平台、凭据），不向 Web 返回原始异常或令牌。
+- Web 配置文件全部写好后，最后原子发布 profile patch 触发 live reload。隔离 smoke 验证实际 DSH 接受新版本，不需要真实微信凭据。
+
+## 生活手账设计服务（2026-10-12）
+
+- `dist/index.js` 管理快照增加 `journalAvailable`，如实报告运行中的手账设计服务。
+- `journal-design` 管理请求必须匹配当前账号，scope 仅允许本机 owner 或该账号的已授权用户；派发给 Chief 持有的 journal runtime。
+- 微信入站的手账确定性命令由项目内 `plugins/life-journal/chief.mjs` 处理，保留原有上下文刷新、私聊和白名单检查。账本持久化成功不因设计失败改成保存失败。
+- 新增服务不主动发送消息或建立提醒，宿主和微信插件锁定版本不变。测试使用离线协议替身，没有真实微信收发验收。
+
+## 2026-10-13 多入口会话与本地 Agent Hub
+
+- `hubModule` / `hubRoot` 由 configure 生成并同步类型声明。通道连接加载项目内 Hub，关闭时等候入站/发送完成后关闭数据库。
+- 已授权来信优先写入 Hub。已有显式绑定优先；本机配置默认路由后，首次来信创建该账号/发件人的独立会话，不合并不同身份。既有 DSH 原生 session 可续接；Web 从接管时记新消息。
+- 持久接受来信后才推进微信收取游标；Hub 按账号、发件人、消息 ID 去重。原主动台账继续刷新发送上下文，确定性 `/pa` 与手账命令仍有效。
+- 原生 session、审批、取消和 `/new` / `/reset` 由 Hub 管理，与 Web 共用。重置命令和新会话映射、旧任务取消、命令回执原子保存，重复推送不多建会话。
+- 生活 Agent 的执行繁忙状态覆盖 Web 来信，避免微信后台提醒插话；其他 Agent 的长任务不占用该队列。明确提醒仍走原限频/静默/上下文规则；发送前将通知记入 Hub 消息与 sending 投递记录，实际发送只有一次。
+- 取消 BYOA 绑定与 DSH 后台能力的互斥。后台角色读取私有配置；生活观察消费同一会话的微信/Web 消息，明确提醒只由共享工具写入。观察领取持久去重，中断不盲目重跑；保持原有主动功能开关。
+- 微信 context token 只在服务端保存，不传给本地执行端。测试不访问真实微信；实现、安装及待验收项见 [BYOA 说明](byoa-implementation.md)。
+
+- DSH Hub 宿主插件独立于微信连接启动，Web 不依赖微信登录。`/agent` 支持选择默认 Agent 或仅指定当前一条；来源投递、审批、取消仍走同一 Hub。

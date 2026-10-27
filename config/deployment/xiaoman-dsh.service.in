@@ -1,0 +1,23 @@
+[Unit]
+Description=Xiaoman DSH and Weixin runtime
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=XIAOMAN_PORT={{DSH_PORT}}
+User={{SERVICE_USER}}
+Group={{SERVICE_GROUP}}
+WorkingDirectory={{INSTALL_DIR}}/current
+# Hub source tools execute here; include the configured Nango secret in this shared private environment.
+EnvironmentFile={{INSTALL_DIR}}/service.env
+ExecStart={{INSTALL_DIR}}/current/scripts/pa.sh start --host 127.0.0.1
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

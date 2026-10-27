@@ -1,0 +1,54 @@
+// Isolated owner UI. No Agent, external transport or real journal is used.
+import assert from 'node:assert/strict';
+import { mkdtemp, rm, readFile, mkdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createRequire } from 'node:module';
+import { once } from 'node:events';
+import { createWebUI } from '../plugins/webui/server.mjs';
+const require = createRequire(import.meta.url);
+const { chromium } = require(process.env.PA_PLAYWRIGHT_MODULE || 'playwright');
+const root = await mkdtemp(join(tmpdir(), 'pa-status-browser-'));
+const config = JSON.parse(await readFile(new URL('../config/pa.example.json', import.meta.url), 'utf8'));
+const app = createWebUI({ root, helper: async () => ({ config, revision: 'fixture', socket: join(root, 'none'), installed: true, runtimeInstalled: true, pending: [] }), rpc: async () => { throw Object.assign(new Error('OFFLINE'), { code: 'OFFLINE' }); } });
+let browser;
+try {
+  app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
+  const origin = `http://127.0.0.1:${app.server.address().port}`;
+  const pair = app.hub.pair({ label: 'Fixture' }), c = app.hub.newConversation({ endpointId: pair.endpointId }), now = Date.now();
+  const old = { id: 'old-block', conversationId: c.id, endpointId: pair.endpointId, source: { channel: 'web' }, title: '生日初轮待确认', createdAt: now - 1200000, finishedAt: now - 1100000, status: 'completed', report: { outcome: 'blocked', summary: '当时还缺生日时间', updatedAt: now - 1100000 } };
+  app.hub.put('run', old);
+  app.hub.put('run', { ...old, id: 'running', title: '整理邮件日程', status: 'running', report: undefined, finishedAt: undefined, createdAt: now - 180000, startedAt: now - 180000, heartbeat: now });
+  app.hub.put('sourceRequest', { id: 'source', runId: 'running', status: 'running', createdAt: now - 5000 });
+  app.hub.pair({ label: 'Secondary fixture' });
+  app.hub.put('personalNoticeWorker', { id: 'mac', state: 'error', reason: 'scan_failed', lastSeenAt: now, lastScanAt: now, diagnostic: { stage: 'reading', code: 'source_read_failed', attempt: 1, retryAt: now + 60000, retryable: true } });
+  browser = await chromium.launch({ headless: true }); const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  const errors = []; page.on('pageerror', e => errors.push(e.message)); page.on('dialog', dialog => dialog.accept());
+  await page.goto(origin + '/#chat');
+  await page.locator('[data-run="old-block"] button[data-chat-action="resolve-run"]').waitFor();
+  await page.getByText('查看核对依据', { exact: true }).click();
+  await page.getByText(/上次执行验证已超出时效/).first().waitFor();
+  await page.getByText('查看核对依据', { exact: true }).click();
+  assert.match(await page.locator('[data-run="running"] .chat-run-progress').innerText(), /本地助手正在读取已授权资料.*已用时 3 分/);
+  const secondary = page.locator('#chat-truth details').filter({ has: page.getByText('其他处理助手（1）', { exact: true }) });
+  assert.equal(await secondary.getAttribute('open'), null);
+  // Same-origin and CSRF still guard the new owner-only handling route.
+  const denied = await page.evaluate(async origin => (await fetch(origin + '/api/hub', { method: 'POST', headers: { 'content-type': 'application/json', 'x-pa-csrf': 'wrong' }, body: JSON.stringify({ operation: 'resolve-run' }) })).status, origin);
+  assert.equal(denied, 403);
+  await page.locator('[data-run="old-block"] button[data-chat-action="resolve-run"]').click();
+  await page.locator('[data-run="old-block"] .chat-run-badge').filter({ hasText: '已接受当前结果' }).waitFor();
+  assert.equal(app.hub.all('runResolution').length, 1); assert.deepEqual(app.hub.get('run', 'old-block'), old);
+  assert.equal(app.hub.get('run', 'running').status, 'running');
+  await page.locator('#chat-run-filter').selectOption('attention');
+  assert.equal(await page.locator('[data-run="old-block"]').count(), 0);
+  await page.locator('#chat-run-filter').selectOption('all');
+  await page.reload();
+  await page.locator('[data-run="old-block"] .chat-run-badge').filter({ hasText: '已接受当前结果' }).waitFor();
+  const out = process.env.PA_STATUS_OUTPUT || join(root, 'screenshots'); await mkdir(out, { recursive: true });
+  await page.screenshot({ path: join(out, 'status-desktop.png'), fullPage: true });
+  await page.setViewportSize({ width: 375, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.screenshot({ path: join(out, 'status-mobile.png'), fullPage: true });
+  assert.deepEqual(errors, []);
+  console.log('Passed isolated status UI: explicit issue acceptance, audit/refresh persistence, running task preserved, attention filter, stale verification wording, secondary separation, real stage/elapsed, CSRF, desktop and 375px no-overflow.');
+} finally { await browser?.close(); await app.shutdown(); await rm(root, { recursive: true, force: true }); }

@@ -35,6 +35,9 @@ final class RecordState {
     static RecordState get(Context context) {
         if (instance == null) {
             instance = restore(context.getApplicationContext());
+            // Publish the fully restored state before save notifies the settings page.
+            // Its refresh callback reads get() again.
+            instance.save(context.getApplicationContext());
         }
         return instance;
     }
@@ -72,7 +75,6 @@ final class RecordState {
                 s.error = json.optString("error", "");
             }
         }
-        s.save(context);
         return s;
     }
 

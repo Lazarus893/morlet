@@ -1,5 +1,6 @@
 """ADB connection management for local and remote devices."""
 
+import os
 import subprocess
 import time
 from dataclasses import dataclass
@@ -44,14 +45,14 @@ class ADBConnection:
         >>> conn.disconnect("192.168.1.100:5555")
     """
 
-    def __init__(self, adb_path: str = "adb"):
+    def __init__(self, adb_path: str | None = None):
         """
         Initialize ADB connection manager.
 
         Args:
             adb_path: Path to ADB executable.
         """
-        self.adb_path = adb_path
+        self.adb_path = adb_path or os.environ.get("ADB", "adb")
 
     def connect(self, address: str, timeout: int = 10) -> tuple[bool, str]:
         """

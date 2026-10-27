@@ -204,10 +204,10 @@ class XCTestConnection:
             True if WDA is ready, False otherwise.
         """
         try:
-            import requests
+            from phone_agent.xctest import http as requests
 
             response = requests.get(
-                f"{self.wda_url}/status", timeout=timeout, verify=False
+                f"{self.wda_url}/status", timeout=timeout
             )
             return response.status_code == 200
         except ImportError:
@@ -226,13 +226,12 @@ class XCTestConnection:
             Tuple of (success, session_id or error_message).
         """
         try:
-            import requests
+            from phone_agent.xctest import http as requests
 
             response = requests.post(
                 f"{self.wda_url}/session",
                 json={"capabilities": {}},
                 timeout=30,
-                verify=False,
             )
 
             if response.status_code in (200, 201):
@@ -260,9 +259,9 @@ class XCTestConnection:
             Status dictionary or None if not available.
         """
         try:
-            import requests
+            from phone_agent.xctest import http as requests
 
-            response = requests.get(f"{self.wda_url}/status", timeout=5, verify=False)
+            response = requests.get(f"{self.wda_url}/status", timeout=5)
 
             if response.status_code == 200:
                 return response.json()

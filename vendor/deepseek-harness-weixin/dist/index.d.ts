@@ -11,6 +11,14 @@ type AccessMode = 'open' | 'allowlist' | 'disabled';
 type ImageInputMode = 'auto' | 'always' | 'never';
 /** Weixin iLink channel configuration. */
 interface Config {
+    agentAdapterModule?: string;
+    hubModule?: string;
+    hubRoot?: string;
+    proactiveModule?: string;
+    proactiveConfigPath?: string;
+    pairingRequestPath?: string;
+    paConfigRevision?: string;
+    paProvider?: string;
     credentialRef: string;
     cwd: string;
     agentPreset?: string;
@@ -407,7 +415,7 @@ declare class WeixinControlServer {
     private readonly loginCompletions;
     private ownsSocket;
     private stopping;
-    constructor(socketPath: string, requestLogin: (signal?: AbortSignal, displayQr?: boolean) => Promise<WeixinLoginRequest>, log: WeixinControlLogger);
+    constructor(socketPath: string, requestLogin: (signal?: AbortSignal, displayQr?: boolean) => Promise<WeixinLoginRequest>, log: WeixinControlLogger, manage?: (request: Record<string, unknown>) => Promise<unknown>);
     /** Listen without making Harness Web await filesystem or socket setup. */
     startInBackground(): void;
     /** Close active clients and remove the socket during plugin teardown. */

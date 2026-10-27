@@ -6,12 +6,12 @@
   resume <task-id|last> [--approve] [--note "补充指令"] [--max-steps N] [--timeout S]
   status [<task-id>|last]
 
-一次 run/resume 是一个「段」：跑到任务完成、到达检查点（每 N 步）、需要 Tony 接管、
-需要 Tony 批准敏感操作、超步数或超时为止。段结束时保存完整上下文（state.json），
+一次 run/resume 是一个「段」：跑到任务完成、到达检查点（每 N 步）、需要 用户 接管、
+需要 用户 批准敏感操作、超步数或超时为止。段结束时保存完整上下文（state.json），
 resume 从同一上下文接着跑，所以不会丢失前面看过的页面。
 
 退出码：0 完成 / 2 手机或环境问题 / 3 没做完（出错、超步数、超时）
-        4 到检查点暂停 / 5 需要 Tony 接管 / 6 需要 Tony 批准敏感操作
+        4 到检查点暂停 / 5 需要 用户 接管 / 6 需要 用户 批准敏感操作
 日志目录默认在项目 .runtime/workspace/phone-logs/<task-id>/ 下（dsh 沙箱只允许写工作目录；微信也只外发工作目录内的文件）。
 """
 from __future__ import annotations
@@ -28,10 +28,13 @@ import sys
 import threading
 import time
 import uuid
+import fcntl
 from datetime import datetime
 from pathlib import Path
 
 from runtime_paths import AUTO_PHONE, PHONE_PROFILE as PROFILE, ADB, WORKSPACE
+from pa_config import device_config
+from devices import get_device, probe_device
 HELPER_PKG = "com.agent.helper"
 HELPER_FILES = f"/sdcard/Android/data/{HELPER_PKG}/files"
 DEVICE_REC_ROOT = "/sdcard/phone-agent/rec"
@@ -50,9 +53,6 @@ DEFAULT_SETTINGS = {
 }
 
 sys.path.insert(0, str(AUTO_PHONE))
-from phone_agent import PhoneAgent  # noqa: E402
-from phone_agent.agent import AgentConfig  # noqa: E402
-from phone_agent.device_factory import DeviceType, set_device_type  # noqa: E402
 from phone_agent.model import ModelConfig  # noqa: E402
 
 
@@ -103,6 +103,8 @@ def resolve_task_dir(root: Path, task_ref: str) -> Path:
             fail(f"{root} 下没有可续跑的任务", 3)
         return dirs[-1]
     d = root / task_ref
+    if d.resolve().parent != root.resolve():
+        fail("任务 ID 必须是日志目录中的单个任务名", 2)
     if not (d / "state.json").exists():
         fail(f"找不到任务 {task_ref}（{d}/state.json 不存在）", 3)
     return d
@@ -114,13 +116,13 @@ def check_device(device_id: str) -> None:
     if "device" not in (out or ""):
         listing = subprocess.run([ADB, "devices"], capture_output=True, text=True).stdout
         if device_id in listing and "unauthorized" in listing:
-            fail(f"手机 {device_id} 还没授权 USB 调试，请 Tony 在手机上点「允许」。")
-        fail(f"手机 {device_id} 没有连在 Mac 上（adb 看不到）。请 Tony 用数据线把手机接到 Mac，并确认 USB 调试打开。")
+            fail(f"手机 {device_id} 还没授权 USB 调试，请 用户 在手机上点「允许」。")
+        fail(f"手机 {device_id} 没有连接到电脑（adb 看不到）。请 用户 用数据线把手机接到电脑，并确认 USB 调试打开。")
     adb(device_id, "shell", "input", "keyevent", "KEYCODE_WAKEUP")
     time.sleep(0.4)
     win = adb(device_id, "shell", "dumpsys", "window", timeout=15) or ""
     if "mDreamingLockscreen=true" in win:
-        fail("手机现在是锁屏状态，我解不了锁。请 Tony 先解锁手机再让我试。")
+        fail("手机现在是锁屏状态，我解不了锁。请 用户 先解锁手机再让我试。")
 
 
 def phone_settings(device_id: str) -> dict:
@@ -396,29 +398,28 @@ class Bridge:
         self.log_dir = log_dir
         self.task_id = log_dir.name
         self.device_id = device_cfg["device_id"]
+        self.device_cfg = device_cfg
+        self.device = get_device(device_cfg)
         self.settings = settings
         self.max_steps = max_steps
         self.checkpoint_every = checkpoint_every
         self.timeout = timeout
-        self.record = record
+        self.record = record and self.device.companion
         self.pending_confirmation: str | None = None
         self.pending_takeover: str | None = None
-        self.approve_once = False
+        self.approved_confirmation = None
         self.initial_task: str | None = None
         self.agent_log = (log_dir / "agent.log").open("a", encoding="utf-8")
 
-        set_device_type({"adb": DeviceType.ADB, "hdc": DeviceType.HDC, "ios": DeviceType.IOS}.get(device_cfg.get("device_type", "adb"), DeviceType.ADB))
         model_config = ModelConfig(base_url=device_cfg["base_url"], model_name=device_cfg.get("model", "autoglm-phone"), api_key=device_cfg.get("api_key", "EMPTY"))
-        agent_config = AgentConfig(max_steps=max_steps, device_id=self.device_id, verbose=False, lang="cn", planning_enabled=True, reflection_interval=5,
-                                   experiences_dir=str(EXPERIENCES_DIR) if EXPERIENCES_DIR.exists() else None)
-        self.agent = PhoneAgent(model_config=model_config, agent_config=agent_config,
-                                confirmation_callback=self._on_confirmation, takeover_callback=self._on_takeover)
+        self.agent = self.device.create_agent(model_config, max_steps, EXPERIENCES_DIR,
+                                              self._on_confirmation, self._on_takeover)
 
     # 回调：敏感操作 / 接管
     def _on_confirmation(self, message: str) -> bool:
-        if self.approve_once:
-            self.approve_once = False
-            self.agent_log.write(f"{now_iso()} 敏感操作已按 Tony 批准执行：{message}\n")
+        if self.approved_confirmation == message:
+            self.approved_confirmation = None
+            self.agent_log.write(f"{now_iso()} 敏感操作已按 用户 批准执行：{message}\n")
             return True
         self.pending_confirmation = message
         return False
@@ -431,13 +432,14 @@ class Bridge:
         a = self.agent
         state = {
             "task_id": self.task_id,
-            "task": a._task or getattr(self, "initial_task", None),
+            "device": {k: self.device_cfg.get(k, "") for k in ("device_type", "device_id", "wda_url")},
+            "task": getattr(a, "_task", None) or self.initial_task,
             "status": status,
             "updated_at": now_iso(),
             "step_count": a._step_count,
-            "loop_count": a._consecutive_loop_count,
+            "loop_count": getattr(a, "_consecutive_loop_count", 0),
             "context": a._context,
-            "action_history": a._action_history,
+            "action_history": getattr(a, "_action_history", []),
             "final_message": final_message,
             "pending_confirmation": self.pending_confirmation,
             "pending_takeover": self.pending_takeover,
@@ -463,7 +465,15 @@ class Bridge:
         self.agent._context.append({"role": "user", "content": [{"type": "text", "text": text}]})
 
     def shot(self, label: str) -> Path | None:
-        return screenshot(self.device_id, self.log_dir / "screenshots" / f"{self.agent._step_count:03d}_{label}.png")
+        try:
+            return self.device.screenshot(self.log_dir / "screenshots" / f"{self.agent._step_count:03d}_{label}.png")
+        except Exception as error:
+            self.agent_log.write(f"Screenshot failed: {type(error).__name__}\n")
+            return None
+
+    def broadcast(self, state, step, text):
+        if self.device.companion:
+            broadcast_status(self.device_id, state, step, text)
 
     # 主循环：跑一段
     def run_segment(self, task: str | None) -> tuple[str, str | None, Path | None]:
@@ -480,8 +490,9 @@ class Bridge:
             recorder.start()
         if task:
             self.initial_task = task
-        adb(self.device_id, "shell", "rm", "-f", f"{HELPER_FILES}/control.json", timeout=10)  # 开跑前的「接管」是过期请求，清掉
-        broadcast_status(self.device_id, "running", self.agent._step_count, (task or self.agent._task or "")[:60])
+        if self.device.companion:
+            adb(self.device_id, "shell", "rm", "-f", f"{HELPER_FILES}/control.json", timeout=10)
+        self.broadcast("running", self.agent._step_count, (task or getattr(self.agent, "_task", "") or "")[:60])
         if self.agent._step_count == 0:
             last_shot = self.shot("start")
         try:
@@ -489,9 +500,9 @@ class Bridge:
                 if time.time() - started > self.timeout:
                     status = "timeout"
                     break
-                if takeover_requested(self.device_id):
+                if self.device.companion and takeover_requested(self.device_id):
                     status = "needs_takeover"
-                    self.pending_takeover = "Tony 在手机上按了「我来接管」"
+                    self.pending_takeover = "用户 在手机上按了「我来接管」"
                     break
                 if self.agent._step_count >= self.max_steps:
                     status = "max_steps_reached"
@@ -510,7 +521,7 @@ class Bridge:
                 steps_file.write(json.dumps(rec, ensure_ascii=False) + "\n")
                 steps_file.flush()
                 print(f"[{n}] {describe_action(result.action)}" + (f"  —  {think[:90]}" if think else ""))
-                broadcast_status(self.device_id, "running", n, describe_action(result.action)[:60])
+                self.broadcast("running", n, describe_action(result.action)[:60])
 
                 if self.pending_confirmation:
                     status = "needs_confirmation"
@@ -547,18 +558,18 @@ class Bridge:
                 recorder.stop()
                 if recorder.unavailable:
                     if isinstance(recorder, AppRecorder):
-                        print(f"注意：录屏没录上（{recorder.reason}）。请 Tony 打开「小满手机助手」点一下「授权录屏」。")
+                        print(f"注意：录屏没录上（{recorder.reason}）。请 用户 打开「小满手机助手」点一下「授权录屏」。")
                     else:
-                        print("注意：录屏没录上：小满手机助手还没授权录屏。请 Tony 打开 App 点「授权录屏」（adb 录屏被 ColorOS 拦了）。")
+                        print("注意：录屏没录上：小满手机助手还没授权录屏。请 用户 打开 App 点「授权录屏」（adb 录屏被 ColorOS 拦了）。")
             if last_shot is None:
                 last_shot = self.shot(status)
             try:
-                pulled = pull_from_phone(self.device_id, shared_root() / "from-phone", quiet=True)
+                pulled = pull_from_phone(self.device_id, shared_root() / "from-phone", quiet=True) if self.device.companion else []
                 if pulled:
                     print("手机侧新文件已拉回：" + "、".join(f"shared/from-phone/{p.name}" for p in pulled))
             except Exception:  # noqa: BLE001
                 pass
-            broadcast_status(self.device_id, "finished" if status == "completed" else ("paused" if status in ("checkpoint", "needs_takeover", "needs_confirmation") else "error"), self.agent._step_count, status)
+            self.broadcast("finished" if status == "completed" else ("paused" if status in ("checkpoint", "needs_takeover", "needs_confirmation") else "error"), self.agent._step_count, status)
             self.save_state(status, final_message, {"last_screenshot": str(last_shot) if last_shot else None, "elapsed": int(time.time() - started)})
             self.agent_log.close()
         return status, final_message, last_shot
@@ -567,9 +578,9 @@ class Bridge:
 # ───────────────────────── 输出 ─────────────────────────
 LABELS = {
     "completed": "✅ 完成",
-    "checkpoint": "⏸ 到检查点，先暂停给 Tony 看一眼",
-    "needs_takeover": "🙋 需要 Tony 接管手机",
-    "needs_confirmation": "⚠️ 遇到敏感操作，等 Tony 批准",
+    "checkpoint": "⏸ 到检查点，先暂停给 用户 看一眼",
+    "needs_takeover": "🙋 需要 用户 接管手机",
+    "needs_confirmation": "⚠️ 遇到敏感操作，等 用户 批准",
     "max_steps_reached": "⏸ 到步数上限，没做完",
     "timeout": "⏱ 超时，已中止",
     "error": "❌ 出错",
@@ -584,11 +595,11 @@ def print_summary(bridge: Bridge, status: str, final_message: str | None, last_s
         print(f"手机端汇报：{final_message}")
     if status == "needs_confirmation":
         print(f"敏感操作：{bridge.pending_confirmation}")
-        print(f"Tony 批准后续跑：phone_task.py resume {bridge.task_id} --approve")
-        print(f"Tony 不批准：phone_task.py resume {bridge.task_id} --note \"不要做这个操作，换个方式或直接汇报\"")
+        print(f"用户 批准后续跑：phone_task.py resume {bridge.task_id} --approve")
+        print(f"用户 不批准：phone_task.py resume {bridge.task_id} --note \"不要做这个操作，换个方式或直接汇报\"")
     elif status == "needs_takeover":
         print(f"接管原因：{bridge.pending_takeover}")
-        print(f"Tony 在手机上处理完后续跑：phone_task.py resume {bridge.task_id}")
+        print(f"用户 在手机上处理完后续跑：phone_task.py resume {bridge.task_id}")
     elif status == "checkpoint":
         print(f"继续：phone_task.py resume {bridge.task_id}   （可加 --note \"补充指令\"）")
     elif status in ("max_steps_reached", "timeout"):
@@ -607,22 +618,23 @@ def print_summary(bridge: Bridge, status: str, final_message: str | None, last_s
 
 # ───────────────────────── 入口 ─────────────────────────
 def load_device_cfg() -> dict:
-    if not PROFILE.exists():
-        fail(f"缺少 {PROFILE}，auto-phone 环境不完整")
-    cfg = json.loads(PROFILE.read_text()).get("device_config", {})
-    cfg["device_id"] = os.environ.get("PHONE_AGENT_DEVICE_ID") or cfg.get("device_id") or ""
-    cfg["base_url"] = os.environ.get("PHONE_AGENT_BASE_URL") or cfg.get("base_url") or ""
-    cfg["model"] = os.environ.get("PHONE_AGENT_MODEL") or cfg.get("model") or "autoglm-phone"
-    cfg["api_key"] = os.environ.get("PHONE_AGENT_API_KEY") or cfg.get("api_key") or "EMPTY"
-    if not cfg.get("device_id") or not cfg.get("base_url"):
-        fail("profile.json 的 device_config 缺 device_id 或 base_url")
-    return cfg
+    return device_config()
 
 
 def prepare(args, task_dir: Path | None) -> tuple[Bridge, dict]:
     cfg = load_device_cfg()
-    check_device(cfg["device_id"])
-    settings = phone_settings(cfg["device_id"])
+    if task_dir is not None:
+        saved = json.loads((task_dir / "state.json").read_text())
+        identity = {k: cfg.get(k, "") for k in ("device_type", "device_id", "wda_url")}
+        if saved.get("device") != identity:
+            fail("任务绑定的设备与当前配置不同，请切回原设备再续跑。")
+    device = get_device(cfg)
+    status = device.probe()
+    if status["state"] != "connected":
+        fail(status["detail"])
+    if not cfg.get("base_url"):
+        fail("请设置 PHONE_AGENT_BASE_URL 和手机视觉模型配置")
+    settings = phone_settings(cfg["device_id"]) if device.companion else dict(DEFAULT_SETTINGS, record=False, bubble=False, overlay=False)
     max_steps = args.max_steps or int(settings.get("maxSteps") or 30)
     checkpoint_every = args.checkpoint_every if args.checkpoint_every is not None else int(settings.get("checkpointEvery") or 0)
     record = (not getattr(args, "no_record", False)) and bool(settings.get("record", True))
@@ -666,7 +678,7 @@ def cmd_resume(args) -> None:
         # 一步都没走过：不能往空上下文里塞消息（执行器会以为不是第一步而跳过系统提示），把补充拼进任务文本
         extra = []
         if args.note:
-            extra.append(f"Tony 的补充：{args.note.strip()}")
+            extra.append(f"用户的补充：{args.note.strip()}")
         first_task = (state.get("task") or "") + ("\n" + "\n".join(extra) if extra else "")
         print(f"续跑：{bridge.task_id}  任务：{state.get('task')}")
         print(f"上次状态：{LABELS.get(prev, prev)}  还没走过步数，从头开始  本次上限 {bridge.max_steps}  检查点：每 {bridge.checkpoint_every or '∞'} 步")
@@ -676,14 +688,14 @@ def cmd_resume(args) -> None:
         return
     if prev == "needs_confirmation":
         if args.approve:
-            bridge.approve_once = True
-            bridge.add_user_note(f"上一步的敏感操作「{state.get('pending_confirmation') or ''}」Tony 已经批准，请重新执行该操作并继续任务。")
+            bridge.approved_confirmation = state.get("pending_confirmation")
+            bridge.add_user_note(f"上一步的敏感操作「{state.get('pending_confirmation') or ''}」用户 已经批准，请重新执行该操作并继续任务。")
         else:
-            bridge.add_user_note(f"上一步的敏感操作「{state.get('pending_confirmation') or ''}」Tony 没有批准。不要再做这个操作，换一种不涉及它的方式完成任务；做不到就用 finish 汇报目前拿到的信息。")
+            bridge.add_user_note(f"上一步的敏感操作「{state.get('pending_confirmation') or ''}」用户 没有批准。不要再做这个操作，换一种不涉及它的方式完成任务；做不到就用 finish 汇报目前拿到的信息。")
     elif prev == "needs_takeover":
-        bridge.add_user_note("Tony 已经在手机上手动处理完了，请看当前屏幕继续任务。")
+        bridge.add_user_note("用户 已经在手机上手动处理完了，请看当前屏幕继续任务。")
     if args.note:
-        bridge.add_user_note(f"Tony 的补充指令：{args.note.strip()}")
+        bridge.add_user_note(f"用户的补充指令：{args.note.strip()}")
     print(f"续跑：{bridge.task_id}  任务：{state.get('task')}")
     print(f"上次状态：{LABELS.get(prev, prev)}  已走 {state.get('step_count')} 步  本次上限 {bridge.max_steps}  检查点：每 {bridge.checkpoint_every or '∞'} 步")
     print("—" * 20)
@@ -718,26 +730,16 @@ def cmd_status(args) -> None:
 
 
 def cmd_check(args) -> None:
-    """只看手机连没连、锁没锁，不动手机。给小满在 Tony 说「连好了」之后复核用。"""
-    cfg = load_device_cfg()
-    did = cfg["device_id"]
-    listing = subprocess.run([ADB, "devices"], capture_output=True, text=True).stdout
-    rows = {l.split()[0]: l.split()[1] for l in listing.splitlines()[1:] if len(l.split()) >= 2}
-    st = rows.get(did)
-    if st is None:
-        print(f"手机 {did}：没连在 Mac 上。请 Tony 用数据线接上，USB 调试打开。"); sys.exit(2)
-    if st != "device":
-        print(f"手机 {did}：状态 {st}，还没授权 USB 调试，请 Tony 在手机弹窗点「允许」。"); sys.exit(2)
-    win = adb(did, "shell", "dumpsys", "window", timeout=15) or ""
-    if "mDreamingLockscreen=true" in win:
-        print(f"手机 {did}：连着，但锁屏了，请 Tony 解锁。"); sys.exit(2)
-    print(f"手机 {did}：已连接、已解锁，可以跑。")
-    rs = record_status(did)
-    print("录屏授权：" + ("已授权" if rs.get("authorized") else "未授权（不影响跑任务，只是没有录像）"))
+    """只看手机连没连、锁没锁，不动手机。给小满在 用户 说「连好了」之后复核用。"""
+    result = probe_device(load_device_cfg())
+    print(f"手机：{result['state']} — {result['detail']}")
+    sys.exit(0 if result["state"] == "connected" else 2)
 
 
 def cmd_push(args) -> None:
     cfg = load_device_cfg()
+    if cfg["device_type"] != "adb":
+        fail("当前设备不支持文件推送/拉取；iPhone 仅提供 WDA 屏幕操作。")
     check_device(cfg["device_id"])
     files = [Path(f).expanduser() for f in args.files]
     done = push_to_phone(cfg["device_id"], files)
@@ -748,6 +750,8 @@ def cmd_push(args) -> None:
 
 def cmd_pull(args) -> None:
     cfg = load_device_cfg()
+    if cfg["device_type"] != "adb":
+        fail("当前设备不支持文件推送/拉取；iPhone 仅提供 WDA 屏幕操作。")
     check_device(cfg["device_id"])
     pulled = pull_from_phone(cfg["device_id"], shared_root() / "from-phone")
     print(f"拉回 {len(pulled)} 个新文件" if pulled else "手机那边没有新文件")
@@ -761,7 +765,7 @@ def main() -> None:
     p_run = sub.add_parser("run", help="开始一个新任务")
     p_run.add_argument("task", nargs="+")
     p_run.add_argument("--max-steps", type=int, default=None, help="总步数上限（默认取手机 App 设置里的 maxSteps，否则 30）")
-    p_run.add_argument("--checkpoint-every", type=int, default=None, help="每 N 步暂停一次给 Tony 看截图（默认取 App 设置，0 表示不暂停）")
+    p_run.add_argument("--checkpoint-every", type=int, default=None, help="每 N 步暂停一次给 用户 看截图（默认取 App 设置，0 表示不暂停）")
     p_run.add_argument("--timeout", type=int, default=300, help="本段墙钟上限（秒）")
     p_run.add_argument("--no-record", action="store_true", help="本次不录屏")
     p_run.set_defaults(func=cmd_run)
@@ -769,7 +773,7 @@ def main() -> None:
     p_res = sub.add_parser("resume", help="从上次暂停处继续")
     p_res.add_argument("task_id", help="任务 id 或 last")
     p_res.add_argument("--approve", action="store_true", help="批准上次停下的那个敏感操作（只批一次）")
-    p_res.add_argument("--note", default=None, help="Tony 的补充指令")
+    p_res.add_argument("--note", default=None, help="用户的补充指令")
     p_res.add_argument("--max-steps", type=int, default=None)
     p_res.add_argument("--checkpoint-every", type=int, default=None)
     p_res.add_argument("--timeout", type=int, default=300)
@@ -791,7 +795,16 @@ def main() -> None:
     p_st.set_defaults(func=cmd_status)
 
     args = ap.parse_args()
-    args.func(args)
+    if args.cmd in {"run", "resume", "push", "pull"}:
+        WORKSPACE.mkdir(parents=True, exist_ok=True)
+        with (WORKSPACE / ".device.lock").open("a") as lease:
+            try:
+                fcntl.flock(lease, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                fail("已有手机任务运行中，请等待完成或先取消。")
+            args.func(args)
+    else:
+        args.func(args)
 
 
 if __name__ == "__main__":

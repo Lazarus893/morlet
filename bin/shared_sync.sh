@@ -4,7 +4,11 @@
 set -euo pipefail
 PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT="${PHONE_SHARED_ROOT:-$PROJECT_ROOT/.runtime/workspace/shared}"
-REMOTE="${XIAOMAN_CLOUD_REMOTE:-xiaoman-cloud:xiaoman-shared}"
+REMOTE="${XIAOMAN_CLOUD_REMOTE:-}"
+if [[ -z "$REMOTE" ]]; then
+  echo "云同步未启用：请先在 .env 显式设置 XIAOMAN_CLOUD_REMOTE。"
+  exit 2
+fi
 MODE="${1:-both}"
 if ! command -v rclone >/dev/null 2>&1; then
   echo "云同步未启用：没装 rclone。装法：brew install rclone；然后 rclone config 建一个叫 xiaoman-cloud 的远端（坚果云选 webdav，地址 https://dav.jianguoyun.com/dav/，账号 + 应用密码）。"

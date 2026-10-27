@@ -43,13 +43,13 @@ def type_text(
         Use tap() to focus on the input field first.
     """
     try:
-        import requests
+        from phone_agent.xctest import http as requests
 
         url = _get_wda_session_url(wda_url, session_id, "wda/keys")
 
         # Send text to WDA
         response = requests.post(
-            url, json={"value": list(text), "frequency": frequency}, timeout=30, verify=False
+            url, json={"value": list(text), "frequency": frequency}, timeout=30
         )
 
         if response.status_code not in (200, 201):
@@ -58,7 +58,7 @@ def type_text(
     except ImportError:
         print("Error: requests library required. Install: pip install requests")
     except Exception as e:
-        print(f"Error typing text: {e}")
+        raise RuntimeError("WebDriverAgent operation failed") from e
 
 
 def clear_text(
@@ -77,12 +77,12 @@ def clear_text(
         The input field must be focused before calling this function.
     """
     try:
-        import requests
+        from phone_agent.xctest import http as requests
 
         # First, try to get the active element
         url = _get_wda_session_url(wda_url, session_id, "element/active")
 
-        response = requests.get(url, timeout=10, verify=False)
+        response = requests.get(url, timeout=10)
 
         if response.status_code == 200:
             data = response.json()
@@ -91,7 +91,7 @@ def clear_text(
             if element_id:
                 # Clear the element
                 clear_url = _get_wda_session_url(wda_url, session_id, f"element/{element_id}/clear")
-                requests.post(clear_url, timeout=10, verify=False)
+                requests.post(clear_url, timeout=10)
                 return
 
         # Fallback: send backspace commands
@@ -100,7 +100,7 @@ def clear_text(
     except ImportError:
         print("Error: requests library required. Install: pip install requests")
     except Exception as e:
-        print(f"Error clearing text: {e}")
+        raise RuntimeError("WebDriverAgent operation failed") from e
 
 
 def _clear_with_backspace(
@@ -117,7 +117,7 @@ def _clear_with_backspace(
         max_backspaces: Maximum number of backspaces to send.
     """
     try:
-        import requests
+        from phone_agent.xctest import http as requests
 
         url = _get_wda_session_url(wda_url, session_id, "wda/keys")
 
@@ -127,11 +127,10 @@ def _clear_with_backspace(
             url,
             json={"value": [backspace_char] * max_backspaces},
             timeout=10,
-            verify=False,
         )
 
     except Exception as e:
-        print(f"Error clearing with backspace: {e}")
+        raise RuntimeError("WebDriverAgent operation failed") from e
 
 
 def send_keys(
@@ -152,16 +151,16 @@ def send_keys(
         >>> send_keys(["\n"])  # Send enter key
     """
     try:
-        import requests
+        from phone_agent.xctest import http as requests
 
         url = _get_wda_session_url(wda_url, session_id, "wda/keys")
 
-        requests.post(url, json={"value": keys}, timeout=10, verify=False)
+        requests.post(url, json={"value": keys}, timeout=10)
 
     except ImportError:
         print("Error: requests library required. Install: pip install requests")
     except Exception as e:
-        print(f"Error sending keys: {e}")
+        raise RuntimeError("WebDriverAgent operation failed") from e
 
 
 def press_enter(
@@ -193,16 +192,16 @@ def hide_keyboard(
         session_id: Optional WDA session ID.
     """
     try:
-        import requests
+        from phone_agent.xctest import http as requests
 
         url = f"{wda_url.rstrip('/')}/wda/keyboard/dismiss"
 
-        requests.post(url, timeout=10, verify=False)
+        requests.post(url, timeout=10)
 
     except ImportError:
         print("Error: requests library required. Install: pip install requests")
     except Exception as e:
-        print(f"Error hiding keyboard: {e}")
+        raise RuntimeError("WebDriverAgent operation failed") from e
 
 
 def is_keyboard_shown(
@@ -220,11 +219,11 @@ def is_keyboard_shown(
         True if keyboard is shown, False otherwise.
     """
     try:
-        import requests
+        from phone_agent.xctest import http as requests
 
         url = _get_wda_session_url(wda_url, session_id, "wda/keyboard/shown")
 
-        response = requests.get(url, timeout=5, verify=False)
+        response = requests.get(url, timeout=5)
 
         if response.status_code == 200:
             data = response.json()
@@ -254,18 +253,18 @@ def set_pasteboard(
         After setting pasteboard, you can simulate paste gesture.
     """
     try:
-        import requests
+        from phone_agent.xctest import http as requests
 
         url = f"{wda_url.rstrip('/')}/wda/setPasteboard"
 
         requests.post(
-            url, json={"content": text, "contentType": "plaintext"}, timeout=10, verify=False
+            url, json={"content": text, "contentType": "plaintext"}, timeout=10
         )
 
     except ImportError:
         print("Error: requests library required. Install: pip install requests")
     except Exception as e:
-        print(f"Error setting pasteboard: {e}")
+        raise RuntimeError("WebDriverAgent operation failed") from e
 
 
 def get_pasteboard(
@@ -281,11 +280,11 @@ def get_pasteboard(
         Pasteboard content or None if failed.
     """
     try:
-        import requests
+        from phone_agent.xctest import http as requests
 
         url = f"{wda_url.rstrip('/')}/wda/getPasteboard"
 
-        response = requests.post(url, timeout=10, verify=False)
+        response = requests.post(url, timeout=10)
 
         if response.status_code == 200:
             data = response.json()
@@ -294,6 +293,6 @@ def get_pasteboard(
     except ImportError:
         print("Error: requests library required. Install: pip install requests")
     except Exception as e:
-        print(f"Error getting pasteboard: {e}")
+        raise RuntimeError("WebDriverAgent operation failed") from e
 
     return None

@@ -248,5 +248,5 @@ def launch_app(
 def _get_adb_prefix(device_id: str | None) -> list:
     """Get ADB command prefix with optional device specifier."""
     if device_id:
-        return ["adb", "-s", device_id]
-    return ["adb"]
+        return [os.environ.get("ADB", "adb"), "-s", device_id]
+    return [os.environ.get("ADB", "adb")]

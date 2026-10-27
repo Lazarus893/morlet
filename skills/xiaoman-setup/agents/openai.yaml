@@ -1,0 +1,4 @@
+interface:
+  display_name: "小满安装与配置"
+  short_description: "使用已有本地 Agent 安装小满、连接微信并恢复中断的独立环境"
+  default_prompt: "使用 $xiaoman-setup，把小满装到独立目录，复用我已登录的本地 Agent。"

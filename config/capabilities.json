@@ -1,0 +1,9 @@
+{
+  "xiaoman-journal-design": {},
+  "phone": {"device": true},
+  "weather": {"bins": ["curl"]},
+  "apple-notes": {"platforms": ["darwin"], "bins": ["memo"]},
+  "apple-reminders": {"platforms": ["darwin"], "bins": ["remindctl"]},
+  "summarize": {"bins": ["summarize"]},
+  "goplaces": {"bins": ["goplaces"], "env": ["GOOGLE_PLACES_API_KEY"]}
+}
