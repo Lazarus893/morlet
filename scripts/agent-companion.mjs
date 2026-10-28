@@ -2,7 +2,7 @@
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
-import { AgentCompanion, loadAgentConfig } from '../plugins/agent-hub/companion.mjs';
+import { createAgentCompanion, loadAgentConfig } from '../plugins/agent-hub/companion.mjs';
 import { acquireCompanionLock } from '../plugins/agent-hub/lock.mjs';
 import { SourceCompanion, sourceTransport } from '../plugins/agent-hub/source-companion.mjs';
 
@@ -10,7 +10,7 @@ export async function runCompanion(configPath) {
   const config = loadAgentConfig(configPath), release = acquireCompanionLock(configPath);
   let companion, sources;
   try {
-    companion = new AgentCompanion({ config, statePath: configPath + '.state' });
+    companion = createAgentCompanion({ config, statePath: configPath + '.state' });
     sources = new SourceCompanion({ root: fileURLToPath(new URL('..', import.meta.url)), statePath: configPath + '.sources-state', transport: sourceTransport(config) });
     let stopping = false;
     const stop = () => { stopping = true; };

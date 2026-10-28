@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#315c47">
+  <title>打开手账 · Morlet</title>
+  <link rel="icon" type="image/png" href="/brand/morlet-mark.png">
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/owner.css">
+  <script src="/owner.js" defer></script>
+</head>
+<body class="owner-page">
+  <main class="owner-book">
+    <section class="owner-leaf" aria-labelledby="owner-title">
+      <div class="owner-brand"><img src="/brand/morlet-mark.png" alt="" width="40" height="40"><span>Morlet</span></div>
+      <div class="owner-entry">
+        <h1 id="owner-title">打开手账</h1>
+        <form id="owner-login">
+          <label for="owner-password">主人密码</label>
+          <input id="owner-password" name="password" type="password" autocomplete="current-password" minlength="12" maxlength="128" aria-describedby="owner-status" required autofocus>
+          <button class="primary" type="submit"><span>进入</span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button>
+        </form>
+        <p id="owner-status" role="status" aria-live="polite"></p>
+        <details id="owner-help">
+          <summary>首次使用或忘记密码</summary>
+          <p>在运行 Morlet 的电脑上设置：</p><code>./scripts/pa.sh owner</code>
+          <p>重设密码并退出所有设备：</p><code>./scripts/pa.sh owner --reset</code>
+        </details>
+      </div>
+    </section>
+    <figure class="owner-cover" aria-hidden="true"><img src="/brand/morlet-notebook.jpg" alt="" width="1200" height="800" fetchpriority="high"></figure>
+  </main>
+</body>
+</html>

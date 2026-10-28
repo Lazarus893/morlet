@@ -1,3 +1,4 @@
+import { botSessionKey } from './bots.mjs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
@@ -40,7 +41,8 @@ export function endpointReadiness(hub, endpoint, conversationId) {
   const authenticationEvidence = { state: authentication === 'unknown' ? lastVerifiedAt ? 'stale' : 'never_verified' : authentication,
     checkedAt: healthAt || null, lastVerifiedAt,
     action: authentication === 'required' ? '在执行助手所在电脑重新登录，再回到连接页核对。' : authentication === 'missing' ? '在执行助手所在电脑安装 CLI，再重新连接。' : authentication === 'unknown' ? lastVerifiedAt ? '上次验证已超出时效；下一次真实交代会核验，不会为刷新状态额外调用模型。' : '先在连接页完成登录；第一次真实交代后核验执行能力。' : '可在连接页查看授权；每次真实执行仍会检查。' };
-  const session = conversationId && hub.get('session', JSON.stringify([conversationId, endpoint.id]));
+  const latest = conversationId && hub.all('run').findLast(r => r.conversationId === conversationId && r.endpointId === endpoint.id && !r.routine);
+  const session = conversationId && hub.get('session', latest ? botSessionKey(latest) : JSON.stringify([conversationId, endpoint.id]));
   const tools = session?.tools || (conversationId ? [] : endpoint.tools || []);
   const missingTools = REQUIRED_TOOLS.filter(t => !tools.includes(t));
   const expiresAt = endpoint.health?.expiresAt ?? null;

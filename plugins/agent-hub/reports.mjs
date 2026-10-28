@@ -3,12 +3,12 @@ import { createHash } from 'node:crypto';
 /** A report describes the task outcome; the companion alone owns execution state. */
 export const REPORT_TOOL = {
   type: 'function', name: 'xiaoman_report',
-  description: 'Report progress and the outcome of the current Xiaoman task to the Hub. Use before your final reply for concrete work, and when blocked. Report only work actually done; completed means the user request is fully satisfied. This does not finish the execution or mark shared to-dos done. summary and outcome replace the previous report; omitted title/artifacts are preserved, artifacts: [] clears them. Artifact links must be HTTP(S); local paths remain on the executing computer and are not uploaded. When you have actually resolved a previously blocked run, include its exact ID in resolvesRunIds only after saving newer versions of every journal item linked to that run. Do not claim unrelated work resolves it. Never include credentials.',
+  description: 'Report progress and the outcome of the current Morlet task to the Hub. Use before your final reply for concrete work, and when blocked. Report only work actually done; completed means the user request is fully satisfied. This does not finish the execution or mark shared to-dos done. summary and outcome replace the previous report; omitted title/artifacts are preserved, artifacts: [] clears them. Artifact links must be HTTP(S); local paths remain on the executing computer and are not uploaded. When you have actually resolved a previously blocked run, include its exact ID in resolvesRunIds only after saving newer versions of every journal item linked to that run. Do not claim unrelated work resolves it. Never include credentials.',
   inputSchema: {
     type: 'object', additionalProperties: false,
     properties: {
       title: { type: 'string', minLength: 1, maxLength: 200, description: 'A concise subject for this task, normally 6–18 Chinese characters or a short noun phrase. Summarize the goal, not the full user sentence or completion status. Include on the first progress report; it also names an automatically titled notebook chapter.' },
-      summary: { type: 'string', minLength: 1, maxLength: 1200 },
+      summary: { type: 'string', minLength: 1, maxLength: 1200, description: 'Write one or two short paragraphs for the person following this matter. Start with its current situation, conclusion or meaningful change, not a saved/updated/checked receipt. Include a decision only when needed and preserve evidence limits such as untested behavior or incomplete reading. Omit unsolicited word counts, versions, tool steps and lists of actions not taken. For example, say which options remain and what is unverified, not that a comparison was saved. Do not force headings, invent changes, repeat the full artifact or copy execution narration.' },
       outcome: { type: 'string', enum: ['in_progress', 'completed', 'partial', 'blocked'] },
       resolvesRunIds: { type: 'array', maxItems: 8, uniqueItems: true, items: { type: 'string', minLength: 1, maxLength: 128 } },
       artifacts: { type: 'array', maxItems: 12, items: {
@@ -102,7 +102,13 @@ export function sourceCoverage(runId, requests) {
 
 // A closed issue is separate from an execution's immutable historical outcome.
 export const runIssueFingerprint = run => createHash('sha256').update(JSON.stringify([run.id, run.status, run.finishedAt ?? null, run.error ?? null, run.report ?? null])).digest('hex');
-export const hasTerminalIssue = run => run.status === 'failed' || run.status === 'completed' && ['blocked', 'partial', 'in_progress'].includes(run.report?.outcome);
+// A hosted ask/delegate can end this execution while the task continues. Keep
+// its historical report intact; a nextRunId alone is not proof of a handoff.
+export const hasBotHandoff = run => Boolean(run.botId && run.status === 'completed' && run.nextRunId &&
+  !run.error && !run.handoffError && !run.botTaskStopped && !['partial', 'blocked'].includes(run.report?.outcome) &&
+  (run.botYielded === true || typeof run.botRequest === 'string' && run.botRequest || run.handoff?.botIds?.length));
+export const hasTerminalIssue = run => run.status === 'failed' || run.status === 'completed' &&
+  (['blocked', 'partial'].includes(run.report?.outcome) || run.report?.outcome === 'in_progress' && !hasBotHandoff(run));
 
 export function journalEvidence(effects) {
   const result = new Map();
@@ -151,7 +157,7 @@ export function runProgress(run, sourceRequests, now) {
     else if (sources[0]?.status === 'failed') { stage = 'source_failed'; label = '一次资料读取未成功，等待处理助手说明'; observedAt = sources[0].finishedAt || sources[0].createdAt; }
     else if (run.nativeActivity) {
       stage = 'native_activity'; observedAt = run.nativeActivity.observedAt;
-      label = run.nativeActivity.phase === 'completed' ? '执行步骤已返回，继续整理结果' : ({ commandExecution: '正在执行命令', fileChange: '正在处理文件', mcpToolCall: '正在调用已连接工具', dynamicToolCall: '正在处理小满任务', webSearch: '正在检索资料', agentMessage: '正在整理回复' })[run.nativeActivity.kind] || label;
+      label = run.nativeActivity.phase === 'completed' ? '执行步骤已返回，继续整理结果' : ({ commandExecution: '正在执行命令', fileChange: '正在处理文件', mcpToolCall: '正在调用已连接工具', dynamicToolCall: '正在处理任务', webSearch: '正在检索资料', agentMessage: '正在整理回复' })[run.nativeActivity.kind] || label;
     }
   }
   return { stage, label, elapsedSeconds, observedAt, path: '消息与任务 → 任务追踪；微信可发“进度”' };

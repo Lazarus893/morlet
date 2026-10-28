@@ -1,9 +1,12 @@
+import { saveBot } from '../plugins/agent-hub/bots.mjs';
+import { ownerSession } from './owner-fixture.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm, cp, chmod, lstat, symlink, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { once } from 'node:events';
+import { Duplex } from 'node:stream';
 import { request as httpRequest, createServer as createHttpServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -49,7 +52,7 @@ async function http(t, options) {
   const origin = `http://127.0.0.1:${app.server.address().port}`;
   const transport = options.publicOrigin ? rawHttp : fetch;
   const hostHeaders = options.publicOrigin ? { Host: new URL(options.publicOrigin).host } : {};
-  const home = await transport(origin, { headers: hostHeaders }); const cookie = home.headers.get('set-cookie').split(';')[0];
+  const home = await ownerSession(options.root, options.publicOrigin || origin); const cookie = home.headers.get('set-cookie').split(';')[0];
   const headers = { ...hostHeaders, Cookie: cookie };
   const snapshot = await transport(origin + '/api/state', { headers }).then(r => r.json());
   assert.equal(snapshot.ok, true);
@@ -242,6 +245,21 @@ test('real control socket supports management and login completion with private 
   const wait = control(f.settings.socket, { command: 'wait-login', loginId: login.loginId });
   complete({ accountId: 'fixture-account', baseUrl: 'https://example.invalid', userId: 'fixture-user' });
   assert.equal((await wait).kind, 'connected');
+});
+
+test('control client write failure closes that client and keeps management available', async t => {
+  const f = await fixture(t);
+  const server = new WeixinControlServer(f.settings.socket, () => assert.fail('No login'), { info() {}, warn() {} }, request => f.bridge.management(request));
+  await server.start(); t.after(() => server.stop());
+  // Model a peer disconnecting after respond's destroyed check but before write.
+  const socket = new Duplex({ read() {}, write(_chunk, _encoding, callback) { callback(Object.assign(new Error('peer closed'), { code: 'EPIPE' })); } });
+  server.accept(socket);
+  const closed = new Promise(resolve => socket.once('close', resolve));
+  socket.emit('data', JSON.stringify({ command: 'pa', operation: 'snapshot' }) + '\n');
+  await closed;
+  assert.equal(server.clients.size, 0);
+  const result = await getRuntime(f.root, f.settings);
+  assert.equal(result.state, 'running');
 });
 
 test('HTTP requires same-origin session + CSRF, enforces Host, serves only allowlisted assets', async t => {
@@ -545,6 +563,7 @@ test('bound Weixin dispatch persists to the Hub instead of executing the cloud/n
   const { createWeixinHub } = await import('../plugins/agent-hub/channel.mjs');
   const f = await fixture(t), web = await http(t, f);
   const paired = web.app.hub.pair({ label: 'Local' }), c = web.app.hub.newConversation({ endpointId: paired.endpointId });
+  saveBot(web.app.hub, { id: 'xiaoman', version: 1, values: { endpointId: paired.endpointId } });
   web.app.hub.bind({ channel: 'weixin', account: accountKey('fixture-account'), peer: 'fixture-user', conversationId: c.id });
   const adapter = createWeixinHub({ root: f.root, accountId: 'fixture-account', allowed: id => id === 'fixture-user', send: async () => assert.fail('No external send in tests'), receiveLegacy: input => f.engine.receive({ from_user_id: input.peer, context_token: 'fixture' }, input.text) });
   t.after(() => adapter.close());
@@ -560,6 +579,7 @@ test('iMessage HTTP ingress is scoped to its configured peer and isolated from A
   const { agentTransport } = await import('../plugins/agent-hub/companion.mjs');
   const f = await fixture(t), web = await http(t, f), hub = web.app.hub;
   const paired = hub.pair({ label: 'Local' }), c = hub.newConversation({ endpointId: paired.endpointId });
+  saveBot(hub, { id: 'xiaoman', version: 1, values: { endpointId: paired.endpointId } });
   const channel = await web.post('hub', { operation: 'pair-channel', label: 'Messages', peer: 'owner@example.invalid', botAddress: 'bot@example.invalid', conversationId: c.id });
   assert.equal(channel.ok, true);
   const transport = messageTransport({ endpoint: web.origin, token: channel.data.token });

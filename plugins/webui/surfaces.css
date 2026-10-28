@@ -14,6 +14,31 @@
 @import '@openuidev/react-ui/styles/table.css';
 @import '@openuidev/react-ui/styles/accordion.css';
 @import '@openuidev/react-ui/styles/tabs.css';
+@import '@openuidev/react-ui/styles/select.css';
+
+/* Official OpenUI/Radix selection behavior, composed with the notebook palette. */
+.jui-bot-select-host{display:inline-flex;min-width:0;max-width:100%}
+.jui-bot-select.openui-select-trigger{min-height:38px;max-width:100%;padding:4px 10px 4px 5px;gap:10px;border:1px solid transparent;border-radius:10px;background:transparent;color:var(--ink);font:inherit;font-size:13px;transition:background-color .16s,border-color .16s,color .16s}
+.jui-bot-select.openui-select-trigger:hover,.jui-bot-select.openui-select-trigger[data-state=open]{background:var(--soft);border-color:var(--line);color:var(--ink)}
+.jui-bot-select.openui-select-trigger:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.jui-bot-select.openui-select-trigger:disabled{opacity:.55;background:transparent;cursor:not-allowed}
+.jui-bot-choice{display:flex;align-items:center;gap:8px;min-width:0;text-align:left}
+.jui-bot-choice img{width:28px;height:28px;object-fit:cover;border-radius:8px;flex-shrink:0}
+.jui-bot-choice img[data-presence=offline],.jui-bot-choice img[data-presence=unconnected],.jui-bot-choice img[data-presence=disabled]{filter:grayscale(1);opacity:.6}
+.jui-bot-choice>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.jui-bot-choice small{margin-left:auto;font-size:12px;color:var(--muted)}
+.jui-bot-options.openui-select-content{z-index:120;min-width:230px;max-width:min(320px,calc(100vw - 24px));max-height:min(320px,var(--radix-select-content-available-height));padding:4px;border:1px solid var(--line);border-radius:14px;background:var(--paper);color:var(--ink);box-shadow:0 8px 28px #19251d18;transform-origin:var(--radix-select-content-transform-origin);animation:jui-bot-menu-in .16s cubic-bezier(.23,1,.32,1)}
+.jui-bot-options .openui-select-viewport{padding:0;max-height:inherit;overflow:auto}
+.jui-bot-options .jui-bot-option.openui-select-item{height:44px;padding:4px 30px 4px 8px;border-radius:9px;color:var(--ink);transition:background-color .12s}
+.jui-bot-options .openui-select-item-text{font:inherit;font-size:14px;color:inherit}
+.jui-bot-options .jui-bot-option[data-highlighted],.jui-bot-options .jui-bot-option[data-state=checked]{background:var(--soft);color:var(--ink)}
+.jui-bot-options .openui-select-item-check-icon{color:var(--accent)}
+.jui-bot-options[data-state=closed]{animation:jui-bot-menu-out .1s ease-in}
+@keyframes jui-bot-menu-in{from{opacity:0;transform:translateY(4px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes jui-bot-menu-out{to{opacity:0;transform:scale(.99)}}
+.jui-bot-options[data-motion=off],.jui-bot-options[data-motion=reduced]{animation:none!important}
+html[data-motion=off] .jui-bot-select,html[data-motion=reduced] .jui-bot-select{transition:none}
+@media(prefers-reduced-motion:reduce){.jui-bot-options{animation:none!important}.jui-bot-select{transition:none!important}}
 
 .journal-surface:empty, .journal-work-adjustments:empty { display: none; }
 .journal-surface { margin: 24px 0; min-width: 0; }
@@ -83,6 +108,20 @@
 .journal-work-next > p { font-size: 15px; line-height: 1.6; }
 .journal-work-next > span, .journal-work-next > button { font-size: 13px; }
 .journal-work-body { margin-top: 0; }
+.journal-work-body:has(.jui-widget-order){display:block}
+.jui-widget-order{position:relative;margin:0;padding:0;list-style:none;overflow:visible}
+.jui-sort-item{position:relative;min-width:0;border-radius:6px;outline-offset:3px;background:var(--paper)}
+.jui-sort-item[hidden]{display:none}
+.jui-sort-item:focus-visible{outline:2px solid var(--accent)}
+.jui-sort-item[data-moving=true]{z-index:2}
+.jui-sort-handle{position:absolute;left:-28px;top:8px;width:28px;height:36px;display:grid;place-items:center;color:var(--muted);cursor:grab;opacity:0;touch-action:none;user-select:none;transition:opacity .14s,color .14s}
+.jui-sort-item:hover>.jui-sort-handle,.jui-sort-item:focus-within>.jui-sort-handle,.jui-sort-item[data-moving=true]>.jui-sort-handle{opacity:1}
+.jui-sort-handle:hover{color:var(--accent)}
+.jui-sort-item[data-moving=true]>.jui-sort-handle{cursor:grabbing;color:var(--accent)}
+.journal-notebook .jui-sort-slot>.journal-widget{padding:12px 0;border:0;border-bottom:1px solid var(--line);border-radius:0;background:transparent}
+.jui-widget-order:last-child>.jui-sort-item:last-child .journal-widget{border-bottom:0}
+html[data-motion=off] .jui-sort-handle,html[data-motion=reduced] .jui-sort-handle{transition:none}
+@media(prefers-reduced-motion:reduce){.jui-sort-handle{transition:none}}
 .journal-work-body > .journal-widget, .journal-work-body > .journal-widget[data-emphasis=primary] { padding: 16px 0; }
 .journal-workpage .jw-section-title { font-size: 18px; margin-bottom: 10px; }
 .journal-workpage .jw-label { font-size: 12px; }

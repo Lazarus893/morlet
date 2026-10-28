@@ -1,5 +1,17 @@
 # 本地改动记录
 
+## 2026-10-28 保留微信原始发送时间
+
+- `dist/index.js` 将 iLink 消息 `create_time_ms` 和稳定消息 ID 一并交给 Hub；只在原有白名单检查后接收。
+- Hub 单独保存发送时间与接收时间。可信发送时间用于跨端聊天排序，异常未来时间回退为接收时间；接收序号仍用于去重与任务执行顺序。
+- 离线回归覆盖乱序到达、重复事件及异常时间，不发送真实微信，不修改插件锁定版本。
+
+## 2026-10-28 控制连接断开不再退出宿主
+
+- `dist/chunk-KCZ7FGE3.js` 为每个控制 socket 处理连接错误，清理客户端并中止其等待；已关闭写端不再响应。
+- 原因：Web 状态请求超时后，异步管理响应可能遭遇 `EPIPE`。未处理的 socket `error` 会退出整个 DSH 进程，使无关后台巡查变为执行不确定。
+- 不改变账号、权限、任务状态或重试策略；只关闭失败客户端。`tests/webui.test.mjs` 复现检查后写入时的断开，验证宿主继续响应下一次管理请求；测试不发送微信消息。
+
 ## deepseek-harness-weixin 0.2.5 → dsh 0.1.5-rc.1 兼容
 - 文件：vendor/deepseek-harness-weixin/dist/index.js（保留当前已工作的修改）
 - 原因：dsh 0.1.5 里 `agents.create({ setup })` 的回调签名变成 `(agentCtx, agent)`，Agent 由第二个参数传入；

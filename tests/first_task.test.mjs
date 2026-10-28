@@ -122,10 +122,14 @@ test('one native session reads current first-task consent then continues ordinar
         return f.hub.tool(f.pairing.token, input);
       }
       const result = f.hub[operation](f.pairing.token, input);
-      if (operation === 'poll' && result.job?.firstTaskId) result.job.firstTask = f.controller.context(result.job);
+      if (operation === 'poll' && result.job?.firstTaskId) {
+        result.job.firstTask = f.controller.context(result.job);
+        result.job.bot = { id: 'xiaoman', name: '小满', instructions: '总管' };
+      }
       return result;
     },
     provider: async (_config, _prompt, context) => {
+      assert.doesNotMatch(_prompt, /本轮先用 xiaoman_bots list/, 'first-task consent must not instruct the model to call a forbidden delegation tool');
       // Model the native resume behavior: only the initial instructions are
       // retained, while authenticated tool results arrive freshly every turn.
       if (!context.sessionId) { initialInstructions = context.instructions; initialTools = context.tools.map(tool => tool.name); }
@@ -136,7 +140,7 @@ test('one native session reads current first-task consent then continues ordinar
       assert.equal(initialInstructions.includes('"flowId":'), false);
       assert.equal(context.instructions, initialInstructions, 'native instructions contain stable rules, not a changing workflow snapshot');
       assert.deepEqual(context.tools.map(tool => tool.name), initialTools);
-      assert.deepEqual(initialTools, ['xiaoman_tasks', 'xiaoman_history', 'xiaoman_memory', 'xiaoman_reminders', 'xiaoman_report', 'xiaoman_status', 'xiaoman_journal', 'xiaoman_first_task', 'xiaoman_sources', 'xiaoman_routines']);
+      assert.deepEqual(initialTools, ['xiaoman_tasks', 'xiaoman_history', 'xiaoman_memory', 'xiaoman_reminders', 'xiaoman_report', 'xiaoman_status', 'xiaoman_journal', 'xiaoman_first_task', 'xiaoman_sources', 'xiaoman_routines', 'xiaoman_bots']);
       assert.match(initialInstructions, /回执没有firstTask就是普通生活对话/);
       await context.onSession(sessionId);
       await context.onCapabilities(sessionId, context.tools.map(tool => tool.name));

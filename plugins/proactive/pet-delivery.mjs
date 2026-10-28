@@ -80,7 +80,7 @@ export function createPetClient(config, { discover = () => discoverPetOrigin(con
       return origin;
     },
     async broadcast(origin, message, signal) {
-      const text = '小满 · ' + message;
+      const text = 'Morlet · ' + message;
       const before = await request(origin, '/state', { signal });
       // The official host starts with pets: {} and creates say on first use.
       if (!before.pets || typeof before.pets !== 'object' || Array.isArray(before.pets)) throw failure('PET_UNAVAILABLE');
@@ -132,7 +132,7 @@ export class PetDelivery {
       this.state.pending = { id: delivery.id, state: 'unknown' }; this.save();
       let result;
       const characters = Array.from(delivery.text);
-      const bubble = characters.length > 500 ? characters.slice(0, 420).join('') + '…\n完整回复在小满「消息与任务」。' : delivery.text;
+      const bubble = characters.length > 500 ? characters.slice(0, 420).join('') + '…\n完整回复在 Morlet「手账」。' : delivery.text;
       try { result = await this.client.broadcast(origin, bubble, signal); }
       catch { result = { state: 'unknown' }; }
       this.state.pending = { id: delivery.id, ...result };

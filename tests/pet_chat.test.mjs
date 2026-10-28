@@ -1,3 +1,4 @@
+import { saveBot } from '../plugins/agent-hub/bots.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync, chmodSync, statSync } from 'node:fs';
@@ -18,6 +19,7 @@ function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'pet-chat-')), hub = new AgentHub(root), store = new JournalStore(root);
   const content = createAutomaticContent({ hub, journal: { store } });
   const endpoint = hub.pair({ provider: 'codex', label: 'existing agent' }), conversation = hub.newConversation({ endpointId: endpoint.endpointId });
+  saveBot(hub, { id: 'xiaoman', version: 1, values: { endpointId: endpoint.endpointId } });
   const pair = hub.pairDesktopPet({ label: 'pet', petId: 'main', conversationId: conversation.id });
   hub.enablePetChat({ channelId: pair.channelId, enabled: true });
   hub.channelStatus(pair.token, { peer: 'main', ready: true });
@@ -71,7 +73,7 @@ test('ambiguous digests require an entry; wrong channel, expired context and fab
 test('ordinary pet replies remain available when proactive messages are paused', t => {
   const f = fixture(t);
   f.hub.put('personalNoticePolicy', { id: 'owner', enabled: false, channelId: f.pair.channelId });
-  assert.match(personalNoticeCommand(f.hub, 'desktop-pet', f.pair.channelId, 'main', '提醒设置'), /桌面小满暂停/);
+  assert.match(personalNoticeCommand(f.hub, 'desktop-pet', f.pair.channelId, 'main', '提醒设置'), /桌面Morlet暂停/);
   const m = f.hub.reply(f.conversation.id, 'ordinary answer', f.source);
   assert.equal(personalChannelPoll(f.hub, f.pair.token).delivery.id, m.id);
   f.hub.channelAck(f.pair.token, { deliveryId: m.id, state: 'submitted' });
@@ -104,6 +106,7 @@ test('owner must enable pet chat; channel HTTP requests preserve identity, rejec
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
   t.after(async () => { app.server.closeAllConnections(); await app.shutdown(); rmSync(root, { recursive: true, force: true }); });
   const endpoint = app.hub.pair({ provider: 'codex', label: 'existing' }), c = app.hub.newConversation({ endpointId: endpoint.endpointId });
+  saveBot(app.hub, { id: 'xiaoman', version: 1, values: { endpointId: endpoint.endpointId } });
   const pair = app.hub.pairDesktopPet({ label: 'pet', petId: 'main', conversationId: c.id });
   const origin = 'http://127.0.0.1:' + app.server.address().port;
   const call = (path, input) => fetch(origin + path, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-PA-Channel-Token': pair.token }, body: JSON.stringify(input) });

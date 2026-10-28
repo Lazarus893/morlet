@@ -50,6 +50,11 @@ export function dshProvider(ctx) {
     if (ctx.agents.get(sessionId)) throw failure('AGENT_SESSION_BUSY');
     const route = ctx.agentDefaultModel.currentSelection();
     const agentOptions = { provider: config.model_provider || route.provider, model: config.model || route.model };
+    let start = 0, emitted = 0;
+    const publishReads = async session => {
+      const receipts = nativeSourceReceipts(session.log.slice(start));
+      while (emitted < receipts.length) { await options.onSourceRead?.(receipts[emitted]); emitted++; }
+    };
     ctx.permissionPresets.resolve(config.permissionPreset);
     const setup = async (agentCtx, agent) => {
       await ctx.agentPresets.mount(agentCtx, config.agentPreset);
@@ -60,7 +65,7 @@ export function dshProvider(ctx) {
       // presentation keeps every capability behind the host's typed boundary.
       agentCtx.tools.presentAs('native');
       agentCtx.tools.guard(exec => nativeActionPolicy(exec.name, exec.arguments, options.routine) === 'blocked'
-        ? '此操作没有受控的生活动作预览，不能执行。请使用小满的只读资料/手账工具，或保留草稿并说明限制。' : undefined);
+        ? '此操作没有受控的生活动作预览，不能执行。请使用 Mori 的只读资料/手账工具，或保留草稿并说明限制。' : undefined);
       if (options.routine) agentCtx.on('tools/execute', async (exec, next) => {
         if (!['web_search', 'web_fetch'].includes(exec.name)) return next();
         // A public read also checks the current server lease/scope immediately
@@ -76,8 +81,9 @@ export function dshProvider(ctx) {
       for (const tool of options.tools || []) agentCtx.tools.register({
         name: tool.name, description: tool.description, parameters: tool.inputSchema,
         output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
-        execute: (args, exec) => {
+        execute: async (args, exec) => {
           if (exec.signal.aborted || String(exec.agent?.session.id) !== String(sessionId)) throw failure('FORBIDDEN');
+          if (options.routine && tool.name === 'xiaoman_routines' && ['verify', 'result'].includes(args.operation)) await publishReads(exec.agent.session);
           return options.callTool(tool.name, args, String(exec.callId));
         },
       });
@@ -102,12 +108,12 @@ export function dshProvider(ctx) {
       await options.onSession(String(sessionId));
       await options.onCapabilities?.(String(sessionId), (options.tools || []).map(t => t.name));
       agent.inject(createUserMessage({ content: [{ type: 'text', text: options.instructions }], source: { kind: 'plugin', plugin: 'xiaoman-hub', form: 'instructions' } }));
-      const start = agent.session.log.length;
+      start = agent.session.log.length;
       agent.followup(createUserMessage({ content: [{ type: 'text', text: prompt }], source: { kind: 'user' } }));
       await agent.whenIdle();
       if (signal.aborted) throw failure('AGENT_TIMEOUT');
       const events = agent.session.log.slice(start);
-      for (const receipt of nativeSourceReceipts(events)) await options.onSourceRead?.(receipt);
+      await publishReads(agent.session);
       const end = events.findLast(e => e.type === 'turn/end');
       if (end?.data.reason.kind === 'error') throw failure('DSH_TURN_FAILED');
       const final = events.findLast(e => e.type === 'assistant/message' && !e.data.message.content.some(b => b.type === 'tool-call'));

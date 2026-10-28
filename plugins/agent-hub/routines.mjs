@@ -1,3 +1,4 @@
+import { resolveBot } from './bots.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { failure } from './store.mjs';
 import { hubConfig } from './config.mjs';
@@ -22,17 +23,17 @@ const scheduleSchema = { type: 'object', additionalProperties: false, properties
 const triggerSchema = { type: 'object', additionalProperties: false, properties: { condition: { type: 'string' }, mode: { type: 'string', enum: ['changed', 'always'] } }, required: ['condition', 'mode'] };
 export const ROUTINE_TOOL = { type: 'function', name: 'xiaoman_routines', description: 'Create and manage durable daily or weekday patrols. List first for server time and versions. A routine saves a calendar Timer and a Trigger, checks through the selected Agent, and reports useful results in its journal. External notifications require a separately configured owner-approved channel; this tool cannot enable or change that channel. Scope binds only the listed source operations and exact filters; omitted scope allows public Web only. Ask before expanding private source access. End permanently stops a routine; resuming an ended routine is forbidden. Use stable facts identifying the actual source event or revision, not the check date. Background checks must submit result after successful reads; missing or failed reads are never evidence of no change. checks.source must match an actual current-run receipt: the requested page URL, search: followed by the exact query, or source-request: followed by xiaoman_sources execution.requestId. Inventory/list is not a data read. Only a current background run may submit result. Never claim a schedule was saved without its receipt.', inputSchema: {
   type: 'object', additionalProperties: false, properties: {
-    operation: { type: 'string', enum: ['list', 'get', 'create', 'update', 'pause', 'resume', 'end', 'authorize_scope', 'run_now', 'result'] },
+    operation: { type: 'string', enum: ['list', 'get', 'create', 'update', 'pause', 'resume', 'end', 'authorize_scope', 'run_now', 'verify', 'result'] },
     id: { type: 'string', description: 'Routine ID. Optional for result: the authenticated run already selects its routine; if supplied, this must match that current routine.' },
     version: { type: 'integer', description: 'Routine version. Optional for result: if supplied, it must match the current authenticated run. It cannot select another run or renew an old authorization.' },
-    values: { type: 'object', additionalProperties: false, properties: { title: { type: 'string' }, instruction: { type: 'string' }, schedule: scheduleSchema, trigger: triggerSchema, endpointId: { type: 'string' }, enabled: { type: 'boolean' }, notification: { type: 'object', additionalProperties: false, properties: { channelId: { anyOf: [{ type: 'string' }, { type: 'null' }] } }, required: ['channelId'] }, scope: ROUTINE_SCOPE_SCHEMA, endsAt: { anyOf: [{ type: 'integer', minimum: 1 }, { type: 'null' }] } } },
+    values: { type: 'object', additionalProperties: false, properties: { title: { type: 'string' }, instruction: { type: 'string' }, schedule: scheduleSchema, trigger: triggerSchema, endpointId: { type: 'string' }, botId: { type: 'string' }, enabled: { type: 'boolean' }, notification: { type: 'object', additionalProperties: false, properties: { channelId: { anyOf: [{ type: 'string' }, { type: 'null' }] } }, required: ['channelId'] }, scope: ROUTINE_SCOPE_SCHEMA, endsAt: { anyOf: [{ type: 'integer', minimum: 1 }, { type: 'null' }] } } },
     matched: { type: 'boolean' }, summary: { type: 'string' }, facts: { type: 'array', maxItems: 60, items: { type: 'object', additionalProperties: false, properties: { key: { type: 'string' }, summary: { type: 'string' }, url: { type: 'string' } }, required: ['key', 'summary'] } },
     outcome: { type: 'string', enum: ['checked', 'blocked'] }, checks: { type: 'array', maxItems: 30, items: { type: 'object', additionalProperties: false, properties: { source: { type: 'string' }, observedAt: { type: 'integer' } }, required: ['source', 'observedAt'] } },
   }, required: ['operation'],
 } };
 
 function validateValues(input, previous, hub) {
-  if (!exact(input, ['title', 'instruction', 'schedule', 'trigger', 'endpointId', 'enabled', 'scope', 'endsAt', 'notification'])) throw failure('INVALID_INPUT');
+  if (!exact(input, ['title', 'instruction', 'schedule', 'trigger', 'endpointId', 'botId', 'enabled', 'scope', 'endsAt', 'notification'])) throw failure('INVALID_INPUT');
   const values = { ...(previous || {}), ...input };
   values.title = text(values.title, 80); values.instruction = text(values.instruction, 8000);
   const s = values.schedule, t = values.trigger;
@@ -126,7 +127,7 @@ function verifiedSources(hub, runId, claims) {
   // Search is a bounded discovery directory. An undeclared partial directory
   // may lead to a complete page read; an actual failed page cannot be hidden by
   // omitting it from the model's checks.
-  if (native.some(row => row.status !== 'completed' && (row.tool === 'web_fetch' || requested.has(row.source) || !fullPage))) return { error: 'ROUTINE_SOURCE_INCOMPLETE', checks: [] };
+  const gaps = native.filter(row => row.status !== 'completed' && (row.tool === 'web_fetch' || requested.has(row.source) || !fullPage)).map(row => ({ source: row.source, status: row.status }));
   const evidence = new Map(native.map(row => [row.source, { source: row.source, observedAt: row.observedAt }]));
   const resources = new Map();
   for (const row of hub.all('sourceRequest').filter(row => row.runId === runId).sort((a, b) => (a.finishedAt || a.createdAt || 0) - (b.finishedAt || b.createdAt || 0))) {
@@ -138,7 +139,7 @@ function verifiedSources(hub, runId, claims) {
     resources.set(key, { row, aliases: [...(old?.aliases || []), 'source-request:' + row.id] });
   }
   for (const { row, aliases } of resources.values()) {
-    if (row.status !== 'completed' || !row.result || incompleteSource(row.result)) return { error: 'ROUTINE_SOURCE_INCOMPLETE', checks: [] };
+    if (row.status !== 'completed' || !row.result || incompleteSource(row.result)) { gaps.push({ source: 'source-request:' + row.id, operation: row.arguments?.operation || '', status: row.status === 'completed' ? 'incomplete' : 'failed' }); continue; }
     const args = row.arguments || {}, result = row.result;
     if (!args.operation) continue;
     if (typeof result.url === 'string') aliases.push(sourceIdentity(result.url));
@@ -148,13 +149,14 @@ function verifiedSources(hub, runId, claims) {
     const verified = { source: 'source-request:' + row.id, observedAt: row.finishedAt || row.createdAt, operation: args.operation };
     for (const alias of aliases.filter(Boolean)) evidence.set(alias, verified);
   }
+  if (gaps.length) return { error: 'ROUTINE_SOURCE_INCOMPLETE', checks: [], gaps };
   const checks = [];
   for (const claim of claims) {
     const verified = evidence.get(sourceIdentity(claim.source));
-    if (!verified) return { error: 'ROUTINE_SOURCE_UNVERIFIED', checks: [] };
+    if (!verified) return { error: 'ROUTINE_SOURCE_UNVERIFIED', checks: [], gaps: [{ source: claim.source, status: 'unverified' }] };
     if (!checks.some(check => check.source === verified.source)) checks.push(verified);
   }
-  return checks.length ? { error: null, checks } : { error: 'ROUTINE_SOURCE_UNVERIFIED', checks: [] };
+  return checks.length ? { error: null, checks, gaps: [] } : { error: 'ROUTINE_SOURCE_UNVERIFIED', checks: [], gaps: [] };
 }
 
 export function createRoutineController({ hub, journal, read }) {
@@ -183,7 +185,7 @@ export function createRoutineController({ hub, journal, read }) {
       const routine = hub.get('routine', run.routine.id), occurrence = hub.get('routineRun', run.routine.occurrenceId);
       if (!occurrence || occurrence.reconciledAt) return occurrence;
       const item = routine?.journalItemId && journalItem(routine);
-      let status = run.status, error = null, published = false, checkedSources = [], publicationFacts = [];
+      let status = run.status, error = null, published = false, checkedSources = [], publicationFacts = [], gaps = [];
       let scopeError = null;
       if (routine) { try { assertRoutineScopeCurrent(hub, routine); } catch (cause) { scopeError = cause.code; } }
       const obsolete = !routine || !routine.enabled || routine.endedAt || routine.endsAt && routine.endsAt <= hub.now() || routine.version !== run.routine.version || !item || ['done', 'cancelled'].includes(item.status);
@@ -196,7 +198,8 @@ export function createRoutineController({ hub, journal, read }) {
       if (obsolete) status = 'superseded';
       else if (scopeError) { status = 'failed'; error = scopeError; }
       else if (status === 'completed') {
-        const verification = result?.outcome === 'checked' ? verifiedSources(hub, runId, result.checks) : null;
+        const verification = result ? verifiedSources(hub, runId, result.checks) : null;
+        gaps = verification?.gaps || [];
         checkedSources = verification?.checks || [];
         if (!result) { status = 'failed'; error = 'ROUTINE_RESULT_MISSING'; }
         else if (result.outcome === 'blocked') { status = 'failed'; error = 'ROUTINE_CHECK_BLOCKED'; }
@@ -221,7 +224,7 @@ export function createRoutineController({ hub, journal, read }) {
       // artifacts, or the occurrence later used by notification delivery.
       const mixed = published && publicationFacts.length < result.facts.length;
       const summary = mixed ? boundedSummary(publicationFacts.map(fact => fact.summary).join('\n')) : error ? (result?.summary || run.report?.summary || null) : result?.summary || null;
-      const finished = hub.put('routineRun', { ...occurrence, status, error, summary, checks: checkedSources, facts: published ? publicationFacts : result?.facts || [], finishedAt: run.finishedAt || hub.now(), reconciledAt: hub.now() });
+      const finished = hub.put('routineRun', { ...occurrence, status, error, summary, gaps, checks: checkedSources, facts: published ? publicationFacts : result?.facts || [], finishedAt: run.finishedAt || hub.now(), reconciledAt: hub.now() });
       const artifacts = published ? [...new Map([...publicationFacts.filter(fact => fact.url).map(fact => ({ label: fact.summary.slice(0, 160), url: fact.url })), ...(routine.trigger.mode === 'always' ? run.report?.artifacts || [] : [])].map(artifact => [artifact.url || artifact.path, artifact])).values()].slice(0, 12) : [];
       hub.put('run', { ...run, routinePublished: published, routineOutcome: status, ...(published ? { report: { ...run.report, title: routine.title, summary, outcome: 'completed', updatedAt: hub.now(), artifacts } } : {}) });
       if (routine && routine.version === run.routine.version) hub.put('routine', { ...routine, lastRunId: occurrence.id, error });
@@ -232,7 +235,11 @@ export function createRoutineController({ hub, journal, read }) {
   // all unfinished occurrences, so the hook is an optimization, not authority.
   hub.reconcileRoutineRun = reconcile;
   function view(routine) {
-    const lastRun = hub.all('routineRun').filter(row => row.routineId === routine.id).sort((a, b) => b.createdAt - a.createdAt || b.scheduledAt - a.scheduledAt)[0] || null;
+    let lastRun = hub.all('routineRun').filter(row => row.routineId === routine.id).sort((a, b) => b.createdAt - a.createdAt || b.scheduledAt - a.scheduledAt)[0] || null;
+    if (lastRun?.status === 'failed' && !lastRun.gaps) {
+      const run = hub.get('run', lastRun.runId);
+      lastRun = { ...lastRun, gaps: verifiedSources(hub, lastRun.runId, run?.routineResult?.checks || []).gaps || [] };
+    }
     const scope = routineScopeView(hub, routine), next = routineTimes(routine.schedule, hub.now()).next;
     const ended = !!routine.endedAt || !!routine.endsAt && routine.endsAt <= hub.now();
     return { ...routine, ...scope, ended, revision: routine.version, nextRunAt: routine.enabled && !ended && !scope.scopeStatus.blocked && (!routine.endsAt || next <= routine.endsAt) ? next : null,
@@ -310,13 +317,18 @@ export function createRoutineController({ hub, journal, read }) {
         assertRoutineScopeCurrent(hub, assigned);
       }
     }
-    if (input.operation === 'result') {
+    if (['verify', 'result'].includes(input.operation)) {
       if (!run?.routine || !['running', 'waiting_approval'].includes(hub.get('run', run.id)?.status)) throw failure('FORBIDDEN');
       const current = hub.get('routine', run.routine.id);
       if (!current?.enabled || current.endedAt || current.endsAt && current.endsAt <= hub.now() || current.version !== run.routine.version) throw failure('ROUTINE_SUPERSEDED');
       assertRoutineScopeCurrent(hub, current);
       const result = validateResult(input, run, hub.now());
       if (result.matched && current.trigger.mode === 'changed' && !result.facts.length) throw failure('INVALID_ROUTINE_RESULT');
+      if (input.operation === 'verify') {
+        const verification = verifiedSources(hub, run.id, result.checks);
+        return { accepted: result.outcome === 'blocked' || !verification.error, error: verification.error, gaps: verification.gaps || [], checks: verification.checks,
+          next: verification.error ? '补读列出的来源后重新提交；仍无法完整读取则提交 outcome:blocked、matched:false，明确缺口。不要把部分读取说成无变化或已完整核实。' : '读取回执已核实；最终发布仍会再次核对授权与结果。' };
+      }
       const latest = hub.get('run', run.id);
       if (latest.routineResult && hash(latest.routineResult) !== hash(result)) throw failure('CONFLICT');
       hub.put('run', { ...latest, routineResult: result });
@@ -335,7 +347,10 @@ export function createRoutineController({ hub, journal, read }) {
     }
     if (run?.routine) throw failure('FORBIDDEN');
     if (!['create', 'update', 'pause', 'resume', 'end', 'authorize_scope', 'run_now'].includes(input.operation)) throw failure('INVALID_OPERATION');
-    if (run && (input.operation === 'authorize_scope' || Object.hasOwn(input.values || {}, 'notification'))) throw failure('FORBIDDEN');
+    // A new journal-only routine may spell out the same least-privilege default.
+    // Agents still cannot select an external channel or alter an existing one.
+    const quietCreation = input.operation === 'create' && exact(input.values?.notification, ['channelId']) && input.values.notification.channelId === null;
+    if (run && (input.operation === 'authorize_scope' || Object.hasOwn(input.values || {}, 'notification') && !quietCreation)) throw failure('FORBIDDEN');
     const key = 'routine-mutation:' + text(requestId || input.requestId, 256), fingerprint = hash({ ...input, requestId: undefined });
     const previous = hub.get('routineMutation', key);
     if (previous && previous.fingerprint !== fingerprint) throw failure('CONFLICT');
@@ -345,6 +360,8 @@ export function createRoutineController({ hub, journal, read }) {
       let routine = hub.transaction(() => {
         const old = hub.get('routineMutation', key);
         if (old) { if (old.fingerprint !== fingerprint) throw failure('CONFLICT'); return hub.get('routine', old.routineId); }
+        const selectedBotId = values.botId || run?.botId;
+        if (selectedBotId) { values.botId = selectedBotId; values.endpointId = resolveBot(hub, selectedBotId).endpoint.id; }
         const endpoint = hub.resolveEndpoint(values.endpointId || run?.endpointId || hubConfig(hub.root).roles.conversation || hub.all('endpoint').find(row => row.active)?.id);
         if (run?.journalItemId && hub.all('routine').some(row => row.journalItemId === run.journalItemId)) throw failure('ROUTINE_ALREADY_EXISTS');
         const item = run?.journalItemId && journal.store.snapshot(LOCAL).items.find(row => row.id === run.journalItemId && row.conversationId === run.conversationId);
@@ -373,6 +390,7 @@ export function createRoutineController({ hub, journal, read }) {
       else {
         const values = input.operation === 'update' ? validateValues(input.values, routine, hub) : input.operation === 'authorize_scope' ? bindRoutineScope(hub, routine.scope) : { enabled: input.operation === 'resume', ...(input.operation === 'end' && { endedAt: hub.now(), endReason: 'user' }) };
         if (input.operation === 'resume') assertRoutineScopeCurrent(hub, routine);
+        if (values.botId && (input.operation === 'update' || input.operation === 'resume')) values.endpointId = resolveBot(hub, values.botId).endpoint.id;
         if (values.endpointId) hub.resolveEndpoint(values.endpointId);
         routine = hub.put('routine', { ...routine, ...values, version: routine.version + 1, updatedAt: hub.now(), activatedAt: hub.now(), error: null });
         for (const job of hub.all('run').filter(job => job.routine?.id === routine.id && ACTIVE.has(job.status))) { hub.cancelRun(job); reconcile(job.id); }
@@ -392,6 +410,7 @@ export function createRoutineController({ hub, journal, read }) {
     if (!ticking) ticking = (async () => { await refreshSettings(); return tickSync(); })().finally(() => { ticking = null; });
     return ticking;
   }
+  hub.routineSnapshot = snapshot;
   return { action, tick, snapshot, reconcile };
 }
 

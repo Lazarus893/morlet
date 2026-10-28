@@ -33,11 +33,31 @@ test('recent keeps independent routine pages omitted by design layout while pres
   const item = (id, extra = {}) => ({ id, title: id, status: 'planned', taskType: 'collection', taskData: {}, primaryProjection: { kind: 'collection' }, ...extra });
   const items = [item('github'), item('typeless'), item('paused'), item('hidden'), item('closed', { status: 'done' }), item('ordinary')];
   const snapshot = { items, scope: {}, layout: { widgets: [{ id: 'github:collection', itemId: 'github', kind: 'collection' }] }, routines: ['github', 'typeless', 'paused', 'hidden', 'closed', 'another-scope'].map(id => ({ journalItemId: id, enabled: id !== 'paused' })) };
-  const context = { snapshot, tab: 'recent', guideOnly: false, search: '', notebookSelection: {}, indexAPI: index, widgetDrafts: new Map(), preferences: () => ({ hidden: ['hidden:collection'], pinned: [], order: [] }), currentItem: id => items.find(item => item.id === id), done: item => item.status === 'done' };
+  const context = { snapshot, tab: 'recent', category: 'all', widgetAPI: undefined, hasWidgetDraft: () => false, guideOnly: false, search: '', notebookSelection: {}, indexAPI: index, widgetDrafts: new Map(), preferences: () => ({ hidden: ['hidden:collection'], pinned: [], order: [] }), currentItem: id => items.find(item => item.id === id), done: item => item.status === 'done' };
   const visible = () => runInNewContext(visibleWidgets + '\nvisibleWidgets()', context);
   assert.deepEqual(ids(visible()), ['github', 'typeless', 'paused']);
   assert.deepEqual(Array.from(visible(), widget => widget.id), ['github:collection', 'typeless:collection', 'paused:collection']);
   assert.equal(snapshot.layout.widgets.length, 1, 'the generated layout is not mutated');
   context.search = 'Typeless';
   assert.deepEqual(ids(visible()), ['typeless']);
+});
+
+test('directory types use explicit facts and routine links, not titles or auxiliary widget types', () => {
+  const title = '每天整理 GitHub';
+  assert.equal(index.category({ id: 'task', title, taskType: 'prep', taskData: { collection: { entries: [] } } }), 'tasks');
+  assert.equal(index.category({ id: 'news', title, source: { kind: 'automatic' } }), 'reference');
+  assert.equal(index.category({ id: 'watch', title, taskType: 'collection' }, [{ journalItemId: 'watch', enabled: false }]), 'routines');
+  assert.equal(index.category({ taskType: 'auto', primaryProjection: { kind: 'agenda' } }), 'tasks');
+  assert.equal(index.category({ taskType: 'auto', taskData: { collection: { entries: [] } }, steps: [{ label: '准备评审' }] }), 'tasks');
+  assert.equal(index.category({ taskType: 'documents' }), 'reference');
+  assert.equal(index.isGuide({ id: 'old', title: '用户改过标题' }, { itemId: 'old' }), true);
+  assert.equal(index.isGuide({ title: '和小满跟进一件事', source: { kind: 'user' } }), false);
+});
+
+test('chapter reorder changes only its own slots, retaining hidden and other chapter order', () => {
+  const current = ['a:prep', 'other:budget', 'hidden:memory', 'a:budget', 'b:prep'];
+  assert.deepEqual(Array.from(index.mergeOrder(current, ['a:prep', 'a:budget'], ['a:budget', 'a:prep'])), ['a:budget', 'other:budget', 'hidden:memory', 'a:prep', 'b:prep']);
+  assert.deepEqual(current, ['a:prep', 'other:budget', 'hidden:memory', 'a:budget', 'b:prep']);
+  assert.throws(() => index.mergeOrder(current, ['a:prep', 'a:budget'], ['a:budget', 'b:prep']), /INVALID_ORDER/);
+  assert.throws(() => index.mergeOrder(current, ['a:prep', 'a:budget'], ['a:prep', 'a:prep']), /INVALID_ORDER/);
 });

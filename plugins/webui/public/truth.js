@@ -1,6 +1,6 @@
 (() => {
   const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-  const channelNames = { weixin: '微信', imessage: 'iMessage', 'desktop-pet': '桌面小满' };
+  const channelNames = { weixin: '微信', imessage: 'iMessage', 'desktop-pet': '桌面 Mori' };
   function connectionIssues(truth) {
     const selected = (truth.agents || []).find(a => a.id === truth.selectedEndpointId), reasons = [];
     if (!selected) reasons.push('尚未连接处理助手');
@@ -34,5 +34,16 @@
     if (!reasons.length) return '';
     return `<section class="panel truth-panel" aria-label="连接需要处理"><p><span>${esc(reasons[0])}</span><a href="#settings">核对连接</a></p>${reasons.length > 1 ? `<details data-truth-section="evidence"><summary>其他连接问题</summary><ul>${reasons.slice(1).map(reason => `<li>${esc(reason)}</li>`).join('')}</ul></details>` : ''}</section>`;
   }
-  window.PATruth = { render, details };
+  function botPresence(bot) {
+    const execution = bot?.execution || bot || {};
+    if (bot?.active === false) return { label: '已停用', muted: true, state: 'disabled' };
+    if (execution.connected === false) return { label: '待连接', muted: true, state: 'disconnected' };
+    if (execution.online === false) return { label: '离线', muted: true, state: 'offline' };
+    if (execution.authentication === 'required') return { label: '需重新登录', muted: false, state: 'attention' };
+    if (execution.authentication === 'missing') return { label: '程序未安装', muted: false, state: 'attention' };
+    if (execution.canExecute === false && execution.online === true) return { label: '连接需检查', muted: false, state: 'attention' };
+    if (execution.online === true && execution.connected === true) return { label: '在线', muted: false, state: 'online' };
+    return { label: '状态待确认', muted: false, state: 'unknown' };
+  }
+  window.PATruth = { render, details, botPresence };
 })();

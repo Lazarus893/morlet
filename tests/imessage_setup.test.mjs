@@ -102,6 +102,53 @@ async function spoolFixture(t) {
     failInbound: value => { failInbound = value; }, sends: () => sends };
 }
 
+test('database recovery requires an exact owner request, rechecks identity, skips old inputs and never repeats a send', async t => {
+  const f = await spoolFixture(t), oldGeneration = f.c.state.generation;
+  f.deliver(); await f.c.tick(); assert.equal(f.sends(), 1);
+  const baseline = f.c.database.baseline.bind(f.c.database);
+  let generation = 'changed', authorized = false, checks = 0;
+  f.c.database.baseline = () => ({ ...baseline(), generation });
+  f.c.check = async () => { checks++; };
+  const transport = f.c.transport;
+  f.c.transport = async (op, input) => op === 'status' && input.error === 'IMESSAGE_DATABASE_CHANGED'
+    ? { accepted: true, ...(authorized && { recovery: { id: 'confirmed', fingerprint: input.recoveryFingerprint } }) }
+    : transport(op, input);
+  await assert.rejects(f.c.prepare(), { code: 'IMESSAGE_DATABASE_CHANGED' });
+  assert.equal(f.c.state.generation, oldGeneration);
+  const history = f.row({ text: 'Before recovery' }); authorized = true;
+  await f.c.prepare(); assert.equal(f.c.state.generation, generation); assert.ok(checks >= 3);
+  f.c.accept(history); assert.equal(f.c.state.incoming.length, 0);
+  f.deliver(); await f.c.tick(); assert.equal(f.sends(), 1);
+  assert.equal(f.c.db.prepare('SELECT state FROM outbox').get().state, 'unknown');
+  generation = 'changed-again'; f.c.check = async () => { throw Object.assign(new Error(), { code: 'IMESSAGE_ACCOUNT_MISMATCH' }); };
+  await assert.rejects(f.c.prepare(), { code: 'IMESSAGE_ACCOUNT_MISMATCH' });
+  assert.equal(f.c.state.generation, 'changed');
+});
+
+test('running bridge retains the recovery fingerprint across tick error reporting', async t => {
+  const f = await spoolFixture(t), baseline = f.c.database.baseline.bind(f.c.database);
+  f.c.database.baseline = () => ({ ...baseline(), generation: 'changed-while-running' });
+  const statuses = [], transport = f.c.transport;
+  let recovery;
+  f.c.transport = async (op, input) => {
+    if (op !== 'status') return transport(op, input);
+    statuses.push(input);
+    if (recovery && recovery.fingerprint !== input.recoveryFingerprint) recovery = undefined;
+    return { accepted: true, ...(recovery && { recovery }) };
+  };
+  f.advance(16000);
+  await assert.rejects(f.c.tick(), { code: 'IMESSAGE_DATABASE_CHANGED' });
+  assert.ok(statuses.length >= 2, 'prepare and tick both report the blocked state');
+  const fingerprint = statuses[0].recoveryFingerprint;
+  assert.match(fingerprint, /^[a-f0-9]{64}$/);
+  assert.ok(statuses.every(s => !s.ready && s.recoveryFingerprint === fingerprint));
+  recovery = { id: 'owner-request', fingerprint };
+  await f.c.tick();
+  assert.equal(f.c.state.generation, 'changed-while-running');
+  assert.equal(statuses.at(-1).ready, true);
+  assert.equal(f.sends(), 0);
+});
+
 test('binding rejects self chat and missing bot identity before starting a bridge', t => {
   const root = mkdtempSync(join(tmpdir(), 'pa-message-config-')); t.after(() => rmSync(root, { recursive: true, force: true }));
   const path = join(root, 'config.json');

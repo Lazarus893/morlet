@@ -53,7 +53,7 @@
     const endpoints = arr(snapshot?.agents?.endpoints), agent = endpoints.find(e => e.id === (flow?.endpointId || snapshot?.agents?.preferredEndpointId)) || null;
     const run = flow?.runSummary || null, running = activeStatuses.has(run?.status) || ['queued', 'working', 'saving', 'uncertain', 'cancelling'].includes(stage);
     const items = arr(flow?.itemRecords), design = flow?.design || {};
-    return { flow, stage, agent, run, running, uncertain: uncertainStages.has(stage) || ['uncertain', 'cancelling'].includes(run?.status), items, design, next: flow?.nextAction || { kind: 'start', label: '交给小满' } };
+    return { flow, stage, agent, run, running, uncertain: uncertainStages.has(stage) || ['uncertain', 'cancelling'].includes(run?.status), items, design, next: flow?.nextAction || { kind: 'start', label: '交给 Mori' } };
   }
   let root, api, navigate, snapshot, model, listeners, pollTimer, draftTimer, generation = 0, initialized = false, refreshing = false;
   let draft = '', dirty = false, saving = false, acting = false, pausedDraft = false, readError = null, writeError = null, pendingAction = null, pendingChecked = false, cachedPending = null, editPlan = false, loginAcknowledged = false, note = '', signature = '', draftPromise;
@@ -108,7 +108,7 @@
   function recordMarkup() {
     if (!model.items.length) return '<div class="ft-recovery"><strong>这次保存过的记录目前未找到</strong><p>可能已在别处删除。先核对手账，已有交代和确认历史仍保留。</p>' + btn('ft-record-check', '重新核对手账记录', 'check', { disabled: refreshing || acting }) + '</div>';
     const design = model.design, designText = ['queued', 'running'].includes(design.state) ? '正在整理看板' : design.state === 'failed' ? '看板整理未完成，记录已保存。' : '';
-    return (model.flow?.followupAnswer ? '<section class="ft-followup" aria-label="小满的回复"><p class="ft-plan-note">' + esc(model.flow.followupAnswer) + '</p></section>' : '') + '<section class="ft-record" aria-labelledby="ft-record-title">' + model.items.map((item, index) => '<article><h3 id="' + (index ? 'ft-record-title-' + index : 'ft-record-title') + '">' + esc(item.title || '这一件生活事') + '</h3><p>' + esc(dateLabel(item.date)) + ' · ' + esc(item.status === 'done' ? '已记下结束' : item.status === 'cancelled' ? '已放下' : '准备中') + '</p>' + (index ? btn('ft-view-' + index, '查看这件事', 'view', { value: item.id }) : '') + '</article>').join('') + (designText ? '<p class="ft-design-state" role="status">' + esc(designText) + '</p>' : '') + '</section>';
+    return (model.flow?.followupAnswer ? '<section class="ft-followup" aria-label="Mori 的回复"><p class="ft-plan-note">' + esc(model.flow.followupAnswer) + '</p></section>' : '') + '<section class="ft-record" aria-labelledby="ft-record-title">' + model.items.map((item, index) => '<article><h3 id="' + (index ? 'ft-record-title-' + index : 'ft-record-title') + '">' + esc(item.title || '这一件生活事') + '</h3><p>' + esc(dateLabel(item.date)) + ' · ' + esc(item.status === 'done' ? '已记下结束' : item.status === 'cancelled' ? '已放下' : '准备中') + '</p>' + (index ? btn('ft-view-' + index, '查看这件事', 'view', { value: item.id }) : '') + '</article>').join('') + (designText ? '<p class="ft-design-state" role="status">' + esc(designText) + '</p>' : '') + '</section>';
   }
   function approvalsMarkup() {
     return arr(model.flow?.approvals).filter(a => !a.status || ['pending', 'requested'].includes(a.status)).map((approval, index) => '<section class="ft-approval" aria-labelledby="ft-approval-' + index + '"><h3 id="ft-approval-' + index + '">' + esc(approval.title || approval.description || '管家请求一次操作授权') + '</h3><p>' + esc(approval.reason || approval.detail || '') + '</p>' + (approval.command ? '<pre>' + esc(typeof approval.command === 'string' ? approval.command : JSON.stringify(approval.command, null, 2)) + '</pre>' : '') + '<div class="ft-actions">' + btn('ft-allow-' + index, '允许这次操作', 'allow', { disabled: blocked(), value: approval.id }) + btn('ft-decline-' + index, '拒绝这次操作', 'decline', { disabled: blocked(), value: approval.id }) + '</div></section>').join('');
@@ -116,7 +116,7 @@
   function transcript() {
     const messages = arr(model.flow?.messages);
     if (!messages.length) return '';
-    return '<details class="ft-history" id="ft-history">' + summary('交代与回复 · ' + messages.length + ' 条') + '<ol>' + messages.map(m => '<li data-role="' + (m.role === 'user' ? 'user' : 'assistant') + '"><span class="ft-sr">' + (m.role === 'user' ? '你的交代' : '小满') + '</span><p>' + esc(m.text) + '</p></li>').join('') + '</ol></details>';
+    return '<details class="ft-history" id="ft-history">' + summary('交代与回复 · ' + messages.length + ' 条') + '<ol>' + messages.map(m => '<li data-role="' + (m.role === 'user' ? 'user' : 'assistant') + '"><span class="ft-sr">' + (m.role === 'user' ? '你的交代' : 'Mori') + '</span><p>' + esc(m.text) + '</p></li>').join('') + '</ol></details>';
   }
   function blocked() { return acting || saving || !initialized || !!readError || !!pendingAction; }
   function connectionIssue() {
@@ -153,7 +153,7 @@
     const confirmedSave = model.flow?.confirmedProposal?.runId === model.flow?.currentRunId && model.flow?.currentRunId;
     const state = model.stage === 'recorded' && !model.items.length ? ['记录待核对', ''] : model.stage === 'recorded' && model.uncertain ? ['计划已保存，处理状态还待核对', '最后一轮尚未确认停止。'] : model.stage === 'queued' && confirmedSave ? ['等待保存', ''] : model.stage === 'recorded' && model.flow?.followupAnswer ? ['已有回复', ''] : stages[model.stage], noFlow = !model.flow || model.stage === 'draft', uncertainAction = !!pendingAction;
     let body = '';
-    if (noFlow) body = composer({ first: true, operation: 'start', submit: '交给小满' }) + '<details class="ft-history" id="ft-examples-wrap">' + summary('例句') + '<div class="ft-examples" aria-label="生活交代示例">' + examples.map(([id, label, value]) => btn('ft-example-' + id, label, 'example', { disabled: acting, value })).join('') + '</div></details>';
+    if (noFlow) body = composer({ first: true, operation: 'start', submit: '交给 Mori' }) + '<details class="ft-history" id="ft-examples-wrap">' + summary('例句') + '<div class="ft-examples" aria-label="生活交代示例">' + examples.map(([id, label, value]) => btn('ft-example-' + id, label, 'example', { disabled: acting, value })).join('') + '</div></details>';
     else {
       if (model.stage === 'awaiting_answer') body += questionsMarkup();
       if (model.stage === 'awaiting_confirmation') body += proposalMarkup();
@@ -197,6 +197,7 @@
     const opened = new Set([...root.querySelectorAll('details[open]')].map(n => n.id));
     const before = root.dataset.stage, next = document.createElement('div'); next.innerHTML = html;
     sync(root, next, true); root.dataset.stage = model.stage; signature = html;
+    window.PABots?.mentions(root.querySelector('#ft-draft'));
     for (const detail of root.querySelectorAll('details')) if (opened.has(detail.id)) detail.open = true;
     if (focus) $('#ft-title')?.focus({ preventScroll: true });
     else if (id && active?.isConnected === false) $(`[id="${id}"]`)?.focus({ preventScroll: true });
@@ -322,7 +323,7 @@
       note = '你之前的交代还在。先接着这件事，新的方向不会覆盖它。'; paint();
     } else if (value.trim()) {
       draft = value.trim().slice(0, 12000); dirty = true; persist(); scheduleDraft();
-      note = '方向已带过来。改成自己的话，再交给小满。'; paint();
+      note = '方向已带过来。改成自己的话，再交给 Mori。'; paint();
     }
     const target = $('#ft-draft') || $('#ft-title'); target?.focus(); target?.scrollIntoView?.({ block: 'center', behavior: 'auto' });
   }

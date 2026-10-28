@@ -10,6 +10,22 @@ const workflowGuide = readFileSync(new URL('../../skills/xiaoman-setup/reference
 const operations = ['list', 'get', 'preview', 'apply-preview', 'add', 'update', 'widget', 'done', 'cancel', 'undo'];
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
 const exact = (value, keys) => object(value) && Object.keys(value).every(key => keys.includes(key));
+function boundJournalItem(hub, run) {
+  const root = run.rootRunId ? hub.get('run', run.rootRunId) : run;
+  if (!root || root.conversationId !== run.conversationId) throw failure('FORBIDDEN');
+  const itemId = root.journalItemId || run.journalItemId || null;
+  if (root.journalItemBound === true) return itemId;
+  if (root.journalItemBound === false || !itemId) return null;
+  // Live jobs created before the binding flag retain an immutable submit
+  // receipt. The mutable current item may merely be a Bot handoff hint.
+  const submitted = hub.db.prepare("SELECT json_extract(data, '$.run.journalItemId') AS itemId, json_extract(data, '$.run.conversationId') AS conversationId FROM receipts WHERE id LIKE 'message:%' AND json_extract(data, '$.run.id') = ? LIMIT 1").get(root.id);
+  if (submitted) {
+    if (submitted.conversationId !== run.conversationId) throw failure('FORBIDDEN');
+    return submitted.itemId || null;
+  }
+  // Imported jobs without a receipt cannot safely discard a known binding.
+  return itemId;
+}
 // This is a read-time recommendation gate, not a mutation of the user's plan.
 export function journalRecommendation(item, now) {
   let reason = 'upcoming';
@@ -48,7 +64,7 @@ export const JOURNAL_TOOL = {
       previewHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
       date: { anyOf: [{ type: 'string' }, { type: 'null' }] }, note: { type: 'string', maxLength: 10000 },
       taskType: { type: 'string', enum: ['auto', ...WIDGET_KINDS] }, taskData: { type: 'object', additionalProperties: false, properties: Object.fromEntries(WIDGET_KINDS.map(kind => [kind, { type: 'object', additionalProperties: true }])) },
-      steps: { type: 'array', maxItems: 100, items: { type: 'object', additionalProperties: false, properties: { id: { type: 'string' }, label: { type: 'string' }, done: { type: 'boolean' } }, required: ['label', 'done'] } },
+      steps: { type: 'array', maxItems: 100, items: { type: 'object', additionalProperties: false, properties: { id: { type: 'string' }, label: { type: 'string', description: 'A short actionable question or step, preferably under 40 Chinese characters. Put detailed evidence and verification procedures in the item note or collection entries, not in the checkbox label.' }, done: { type: 'boolean' } }, required: ['label', 'done'] } },
       candidates: { type: 'array', maxItems: 30, items: { type: 'object', additionalProperties: false, properties: { id: { type: 'string' }, name: { type: 'string' }, detail: { type: 'string' }, selected: { type: 'boolean' }, url: { type: 'string' } }, required: ['name', 'selected'] } },
       action: { type: 'string' }, data: { type: 'object', additionalProperties: true },
       stepId: { type: 'string' }, done: { type: 'boolean' }, candidateId: { type: 'string' }, slotId: { type: 'string' },
@@ -97,7 +113,7 @@ export async function journalTool({ hub, journal, firstTasks, read, token, input
   };
   if (args.operation === 'list') return {
     revision: snapshot.revision, now, timezone, design: snapshot.design, view: journalView(),
-    workflowGuide, ...(run.journalItemId && { currentItemId: run.journalItemId, currentItemInstruction: '当前追聊关联此事项；先get读取最新内容，按本轮要求更新，不重复新增。' }),
+    workflowGuide, ...(run.journalItemId && { currentItemId: run.journalItemId, currentItemInstruction: boundJournalItem(hub, run) ? '当前追聊关联此事项；先get读取最新内容，按本轮要求更新，不重复新增。' : '当前任务关联此事项；需修改时先get读取最新内容。' }),
     recommendationPolicy: 'Only current upcoming items may be considered for unsolicited suggestions. Exclude past_date, closed and date_unconfirmed; history is not a current task. Also respect user pauses and relevance. Do not silently reschedule, repeat next week, reopen or delete an item. Explicit questions about past items can be answered as history.',
     ...firstTaskContext(),
     capabilities: { kinds: WIDGET_KINDS, types: widgetCapabilities() },
@@ -110,8 +126,9 @@ export async function journalTool({ hub, journal, firstTasks, read, token, input
     firstTasks?.recordRead?.(authorize(), item);
     return { revision: snapshot.revision, item, recommendation: journalRecommendation(item, now), view: journalView(item.id), writeTemplate: { operation: 'update', revision: snapshot.revision, itemId: item.id, itemVersion: item.version, values: {} }, widgets: snapshot.layout.widgets.filter(widget => widget.itemId === item.id), design: snapshot.design, layoutSource: snapshot.layout.source, now, timezone, ...firstTaskContext() };
   }
-  if (args.operation === 'add' && run.journalItemId && hub.all('run').find(r => r.conversationId === run.conversationId)?.id === run.id) {
-    const item = snapshot.items.find(item => item.id === run.journalItemId);
+  const boundItemId = args.operation === 'add' && boundJournalItem(hub, run);
+  if (boundItemId) {
+    const item = snapshot.items.find(item => item.id === boundItemId);
     if (!item) throw failure('ITEM_NOT_FOUND');
     return { saved: false, error: 'ITEM_ALREADY_EXISTS', message: '本轮交代已建立事项。请先 get 读取该事项，再用 update 补充，不重复新增。',
       itemId: item.id, writeTemplate: { operation: 'update', revision: snapshot.revision, itemId: item.id, itemVersion: item.version, values: {} } };

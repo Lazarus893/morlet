@@ -1,3 +1,4 @@
+import { ownerSession } from './owner-fixture.mjs';
 import test from 'node:test';
 import { configureReachOut } from '../plugins/proactive/reach-out.mjs';
 import assert from 'node:assert/strict';
@@ -77,7 +78,7 @@ test('owner APIs require page cookie, CSRF and same origin; channel tokens canno
  const root=mkdtempSync(join(tmpdir(),'personal-notices-http-')),app=createWebUI({root,helper:async()=>({revision:'fixture',installed:false,config:{agent:{provider:'dsh'},im:{provider:'disabled',allow_from:[]},proactive:{timezone:'Asia/Shanghai'}}}),rpc:async()=>{throw new Error('offline');}});
  app.server.listen(0,'127.0.0.1');await once(app.server,'listening');t.after(async()=>{app.server.closeAllConnections();await app.shutdown();rmSync(root,{recursive:true,force:true});});
  const origin='http://127.0.0.1:'+app.server.address().port,fetcher=(p,options={})=>fetch(origin+p,{...options,signal:AbortSignal.timeout(5000)});
- const home=await fetcher('/'),cookie=home.headers.get('set-cookie').split(';')[0],state=await fetcher('/api/state',{headers:{Cookie:cookie}}).then(r=>r.json());
+ const home=await ownerSession(root, origin),cookie=home.headers.get('set-cookie').split(';')[0],state=await fetcher('/api/state',{headers:{Cookie:cookie}}).then(r=>r.json());
  assert.equal((await fetcher('/api/personal-notices')).status,403);
  const payload=JSON.stringify({operation:'configure',enabled:false});
  for(const headers of [{},{Cookie:cookie,Origin:origin},{Cookie:cookie,Origin:'https://stranger.test','X-PA-CSRF':state.data.csrf},{'X-PA-Channel-Token':'private-channel'}]) assert.equal((await fetcher('/api/personal-notices',{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:payload})).status,403);

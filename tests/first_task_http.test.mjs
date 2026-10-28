@@ -1,3 +1,4 @@
+import { ownerSession } from './owner-fixture.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -37,7 +38,7 @@ async function fixture(t) {
   const boundedFetch = (path, options = {}) => fetch(origin + path, {
     ...options, signal: AbortSignal.timeout(5000),
   });
-  const home = await boundedFetch('/');
+  const home = await ownerSession(root, origin);
   let cookie = home.headers.get('set-cookie').split(';')[0];
   const state = await boundedFetch('/api/state', { headers: { Cookie: cookie } }).then(r => r.json());
   assert.equal(state.ok, true);
@@ -68,7 +69,7 @@ async function fixture(t) {
     app.server.listen(0, '127.0.0.1');
     await once(app.server, 'listening');
     origin = `http://127.0.0.1:${app.server.address().port}`;
-    const page = await boundedFetch('/');
+    const page = await ownerSession(root, origin);
     cookie = page.headers.get('set-cookie').split(';')[0];
     const fresh = await boundedFetch('/api/state', { headers: { Cookie: cookie } }).then(r => r.json());
     assert.equal(fresh.ok, true);
@@ -106,7 +107,13 @@ test('normal Web send continues only the matching guide and returns its new repo
   const input = { operation: 'send', conversationId: oldRun.conversationId, endpointId: f.endpoint.endpointId, content: '重新核对原始资料，不修改记录。', requestId: 'real-web-continuation' };
   for (const overrides of [{ Cookie: '' }, { Origin: 'https://other.invalid' }, { 'X-PA-CSRF': 'wrong' }]) assert.equal((await ownerPost('hub', input, overrides)).status, 403);
   assert.equal(f.app.hub.all('run').length, 1);
+  const uploaded = await ownerPost('attachments', { conversationId: oldRun.conversationId, name: '补充材料.txt', base64: Buffer.from('追加的原文依据').toString('base64'), requestId: 'guide-file-12345' });
+  assert.equal(uploaded.status, 200);
+  input.attachmentId = uploaded.data.id;
   const resumed = await ownerPost('hub', input);
+  assert.deepEqual(resumed.data.run.attachmentIds, [input.attachmentId]);
+  assert.match(resumed.data.run.prompt, /attachment_read/);
+  assert.equal((await ownerPost('hub', { ...input, attachmentId: 'changed' })).status, 409);
   assert.equal(resumed.status, 200); assert.notEqual(resumed.data.run.id, oldRunId);
   assert.equal(resumed.data.run.firstTaskId, oldRun.firstTaskId);
   assert.equal(resumed.data.run.firstTaskMode, 'followup');
@@ -127,7 +134,7 @@ test('normal Web send continues only the matching guide and returns its new repo
   assert.equal((await f.get()).data.flow.id, draft.data.flowId);
   assert.equal((await f.get()).data.flow.draft, '另一个尚未发送的草稿');
   const ordinary = f.app.hub.newConversation({ endpointId: f.endpoint.endpointId });
-  const unrelated = await ownerPost('hub', { ...input, conversationId: ordinary.id, requestId: 'ordinary-send' });
+  const unrelated = await ownerPost('hub', { ...input, attachmentId: undefined, conversationId: ordinary.id, requestId: 'ordinary-send' });
   assert.equal(unrelated.status, 200); assert.equal(unrelated.data.run.firstTaskId, undefined);
   assert.equal(f.app.firstTasks.guideSnapshot(store.snapshot(LOCAL)).run.id, resumed.data.run.id);
   assert.equal(f.app.hub.all('delivery').length, 0);

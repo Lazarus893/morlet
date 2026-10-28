@@ -1,3 +1,4 @@
+import { saveBot, botSnapshot } from '../plugins/agent-hub/bots.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -8,6 +9,20 @@ import { JournalStore } from '../plugins/life-journal/store.mjs';
 import { createRoutineController, routineTimes, routineTool } from '../plugins/agent-hub/routines.mjs';
 
 const values = (more = {}) => ({ title: '项目巡查', instruction: '检查公开项目是否有值得整理的新进展。', schedule: { time: '09:00', timezone: 'Asia/Shanghai', days: [1, 2, 3, 4, 5, 6, 7] }, trigger: { condition: '有新的公开进展', mode: 'changed' }, ...more });
+
+test('preflight names the actual incomplete source, permits a verified reread, and does not commit a result', async t => {
+  const f = await fixture(t), { routine } = await f.create();
+  await f.routines.action({ operation: 'run_now', id: routine.id, version: 1, requestId: 'preflight' });
+  const job = f.poll(); f.read(job, { status: 'incomplete' });
+  const args = { operation: 'verify', outcome: 'checked', matched: false, summary: 'No changes', facts: [], checks: [{ source: 'https://example.invalid/project', observedAt: f.hub.now() }] };
+  const verify = () => f.routines.action(args, { run: job });
+  const rejected = await verify();
+  assert.equal(rejected.accepted, false); assert.deepEqual(rejected.gaps, [{ source: 'https://example.invalid/project', status: 'incomplete' }]);
+  assert.equal(f.hub.get('run', job.id).routineResult, undefined);
+  f.read(job); assert.equal((await verify()).accepted, true);
+  await f.result(job, { ...args, operation: 'result' }, false); f.complete(job);
+  assert.equal(f.hub.get('routineRun', job.routine.occurrenceId).status, 'quiet');
+});
 async function fixture(t, at = '2026-10-26T00:00:00Z') {
   const root = await mkdtemp(join(tmpdir(), 'pa-routine-')); let now = Date.parse(at);
   const hub = new AgentHub(root, { now: () => now }), store = new JournalStore(root, { now: () => now });
@@ -375,4 +390,31 @@ test('older fact receipts retain deduplication without leaking unstamped keys in
   assert.doesNotMatch(second.prompt, /https:\/\/example.invalid\/project\/release\/1/);
   await f.result(second); f.complete(second);
   assert.equal(f.hub.get('routineRun', second.routine.occurrenceId).status, 'quiet');
+});
+
+
+test('a Bot owns its routine and disabling it pauses the schedule and fences old work', async t => {
+  const f = await fixture(t);
+  const bot = saveBot(f.hub, { values: { name: '巡查员', handle: 'patrol', instructions: '检查用户指定的公开页面', avatar: 'research', endpointId: f.pairing.endpointId } });
+  const { routine } = await f.create(values({ botId: bot.id }));
+  assert.equal(routine.botId, bot.id);
+  assert.equal(botSnapshot(f.hub).find(b => b.id === bot.id).routines[0].id, routine.id);
+  await f.routines.action({ operation: 'run_now', id: routine.id, version: 1, requestId: 'bot-run' });
+  const job = f.poll(); assert.equal(job.botId, bot.id); assert.equal(job.sessionId, null); assert.deepEqual(job.context, []);
+  saveBot(f.hub, { id: bot.id, version: 1, values: { active: false } });
+  assert.equal(f.hub.get('routine', routine.id).enabled, false);
+  assert.equal(f.hub.get('run', job.id).status, 'cancelling');
+  await assert.rejects(f.result(job, { outcome: 'blocked' }, false), { code: 'FORBIDDEN' });
+});
+
+
+test('an Agent can explicitly create a journal-only Bot routine but cannot set an external channel', async t => {
+  const f = await fixture(t);
+  const bot = saveBot(f.hub, { values: { name: '安排', handle: 'arrange', instructions: '按用户交代安排巡查', avatar: 'planner', endpointId: f.pairing.endpointId } });
+  const conversation = f.hub.newConversation({ botId: bot.id });
+  f.hub.submit({ conversationId: conversation.id, botId: bot.id, content: '每天检查公开页面，只保存手账', requestId: 'daily-request' });
+  const run = f.poll();
+  const invoke = (notification, callId) => routineTool({ hub: f.hub, routines: f.routines, token: f.pairing.token, input: { runId: run.id, lease: run.lease, callId, arguments: { operation: 'create', values: values({ notification }) } } });
+  const result = await invoke({ channelId: null }, 'quiet'); assert.equal(result.routine.botId, bot.id);
+  await assert.rejects(invoke({ channelId: 'external' }, 'external'), { code: 'FORBIDDEN' });
 });

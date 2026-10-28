@@ -122,7 +122,7 @@ export function personalNoticeCommand(hub, channel, account, peer, input, contex
     const policy = reachOutPolicy(hub);
     const routineEnabled = hub.all('routine').some(routine => routine.enabled && !routine.endedAt && routine.notification?.channelId === account && (!routine.endsAt || routine.endsAt > hub.now()));
     const enabled = policy.mode !== 'Off' && (c?.id === account && p.enabled || routineEnabled);
-    return `主动提醒 ${policy.mode}；${channel === 'desktop-pet' ? '桌面小满' : 'iMessage'}${enabled ? '开启' : '暂停'}。共享额度每天最多${policy.max_daily}条，间隔至少${policy.min_gap_minutes}分钟，静默${policy.quiet_start}–${policy.quiet_end}（${policy.timezone}）。`;
+    return `主动提醒 ${policy.mode}；${channel === 'desktop-pet' ? '桌面Morlet' : 'iMessage'}${enabled ? '开启' : '暂停'}。共享额度每天最多${policy.max_daily}条，间隔至少${policy.min_gap_minutes}分钟，静默${policy.quiet_start}–${policy.quiet_end}（${policy.timezone}）。`;
   }
   if (!c?.active || c.id !== account || c.peer !== peer) return null;
   const reaction = channel === 'imessage' && reactions[input.trim()];

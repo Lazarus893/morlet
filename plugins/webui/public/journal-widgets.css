@@ -21,3 +21,10 @@ html[data-motion=off] .journal-task-widget wa-progress-bar::part(indicator),html
 
 /* The note grid follows the number of saved entries, including a single note. */
 .jw-pinboard { grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
+.jw-action-form:empty{display:none}
+.jw-saved-text{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7;margin:8px 0}
+.jw-saved-rating{color:var(--muted);font-variant-numeric:tabular-nums}
+
+.jw-step-detail{margin:4px 0 0 28px;font-size:13px;line-height:1.65}.jw-step-detail summary{width:fit-content;color:var(--muted);cursor:pointer}.jw-step-detail p{margin:8px 0 0}
+
+.journal-report-preview{margin:0 0 8px;line-height:1.7;overflow-wrap:anywhere}.journal-result:has(>details[open])>.journal-report-preview{display:none}.journal-result>details>summary{font-size:13px;color:var(--muted);cursor:pointer;width:fit-content}

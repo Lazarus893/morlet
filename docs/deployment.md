@@ -1,9 +1,9 @@
 # 实例部署模板
 
-服务配置由用户本机参数生成，不在源码中填写个人主机、用户、安装目录或密钥。模板为 Linux systemd + 独立 Nginx 的受信任内网部署；当前应用没有多租户登录，不把此模板作为公网开放部署方案。
+服务配置由用户本机参数生成，不在源码中填写个人主机、用户、安装目录或密钥。模板为 Linux systemd + 独立 Nginx 的受信任内网部署；应用采用单主人登录；不同使用者部署独立实例，不共享私人手账。远程浏览器登录需要 HTTPS，详见 [访问与恢复](owner-access.md)。
 
 1. 将 `config/deployment.example.json` 复制到 `.runtime/deployment.json`，权限设为 0600。也可运行一次 `python3 scripts/render_deployment.py`，它会创建示例并停止。
-2. 填入自己的部署目录、服务用户/组、Node/Nginx 路径、服务器域名和三个独立端口。模型和其他敏感环境值保存在目标实例的私有 `service.env`，不改源码模板。
+2. 填入自己的部署目录、服务用户/组、Node/Nginx 路径、服务器域名和三个独立端口。远程访问同时填写 `tls_certificate` 与 `tls_certificate_key`，指向已签发的可信证书及私钥；不要把私钥写进配置正文。模型和其他敏感环境值保存在目标实例的私有 `service.env`，不改源码模板。
 3. 再次运行渲染器，检查 `.runtime/deployment/` 下生成的四个文件。渲染器不会连接服务器、安装服务、创建用户、接受许可或重启进程。
 
 `install_dir` 指向目标机的实例根目录，模板使用其 `current/` 应用目录和 `service.env`。目标机依赖与微信 vendor 必须来自同一经过验证的 release；运行数据独立保留。`public_host/public_port` 与 Web 的 `PA_WEB_ORIGIN` 一致；DSH 和 Web 后端只绑定 loopback。反向代理配置、账户与系统权限由部署环境管理员确认。

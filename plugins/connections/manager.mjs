@@ -22,8 +22,8 @@ const MESSAGES = {
   setup_required: '请在当前 Mac 完成连接配置', network_error: '暂时无法访问服务，稍后会再次检查',
   probe_failed: '检查未成功，请在当前 Mac 查看连接配置', auth_pending: '请完成授权页面中的确认',
   auth_expired: '本次授权已过期，请重新开始', auth_denied: '本次授权未获允许',
-  oauth_client_missing: '小满尚未配置这个服务的 OAuth 应用，请由部署方完成配置后再授权',
-  credits_required: 'X 内容服务额度不可用，请联系小满部署方',
+  oauth_client_missing: 'Morlet尚未配置这个服务的 OAuth 应用，请由部署方完成配置后再授权',
+  credits_required: 'X 内容服务额度不可用，请联系Morlet部署方',
   rate_limited: '服务暂时限流，稍后会再次检查',
   account_changed: '当前登录账号与已授权账号不同，请重新确认授权',
   native_helper_missing: '当前 Mac 尚未安装文件授权助手，请先完成本机安装',
@@ -180,7 +180,7 @@ export function createConnectionManager({ root, now = Date.now, intervalMs = 15_
     cloudState(id) { return transaction(state => clone(state.items.find(item => item.id === id) || null)); },
     cloudCleanupJobs() { return transaction(state => clone(state.nangoCleanup || [])); },
     cloudCleanupDone(key) { return transaction(state => { state.nangoCleanup = (state.nangoCleanup || []).filter(job => job.key !== key); save(state); }); },
-    cloudCleanupFailed(id) { return transaction(state => { const item = state.items.find(item => item.id === id); if (item?.provider === 'nango' && !item.enabled) { setState(state, item, 'revoked', '小满访问已撤回；云端凭据清理将在服务恢复后重试'); save(state); } }); },
+    cloudCleanupFailed(id) { return transaction(state => { const item = state.items.find(item => item.id === id); if (item?.provider === 'nango' && !item.enabled) { setState(state, item, 'revoked', 'Morlet访问已撤回；云端凭据清理将在服务恢复后重试'); save(state); } }); },
     cloudBegin({ id, revision, operation }) {
       if (!['google', 'github', 'x'].includes(id) || !['connect', 'check', 'disconnect'].includes(operation)) fail('INVALID_REQUEST');
       return transaction(state => {
@@ -203,7 +203,7 @@ export function createConnectionManager({ root, now = Date.now, intervalMs = 15_
         if (operation === 'disconnect') {
           item.enabled = false; item.account = null; delete item.binding; delete item.pendingReconnect; delete item.attemptId; delete item.attemptExpiresAt;
           item.permissions = item.permissions.map(p => ({ ...p, granted: false, verified: false }));
-          setState(state, item, 'revoked', '已撤回小满访问授权');
+          setState(state, item, 'revoked', '已撤回Morlet访问授权');
         } else {
           item.enabled = true;
           if (operation === 'connect') {
@@ -279,7 +279,7 @@ export function createConnectionManager({ root, now = Date.now, intervalMs = 15_
             item.enabled = false; item.scope = null; item.account = null;
             item.permissions = item.permissions.map(permission => ({ ...permission, granted: false, verified: false }));
             state.commands = state.commands.filter(command => command.id !== id);
-            setState(state, item, 'revoked', '已撤回小满访问授权；其他工具的登录凭据保留');
+            setState(state, item, 'revoked', '已撤回Morlet访问授权；其他工具的登录凭据保留');
           } else {
             if (!(operation === 'check' && item.state === 'awaiting_authorization')) setState(state, item, state.bridge.online ? 'checking' : 'offline', state.bridge.online ? '正在检查当前 Mac 的连接与权限' : '等待当前 Mac 连接并检查');
             enqueue(state, item, operation, id === 'google' ? { account: item.account } : id === 'files' ? { scope: item.scope, readOnly: true } : {});

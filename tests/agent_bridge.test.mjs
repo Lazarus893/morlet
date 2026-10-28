@@ -65,6 +65,10 @@ test('Codex reports model entitlement, authentication and rate limits without ex
       ['other', 'PRIVATE: the selected model is not supported when using a ChatGPT account', 'AGENT_MODEL_UNAVAILABLE'],
       ['unauthorized', 'PRIVATE credential details', 'AGENT_AUTH_REQUIRED'],
       ['usageLimitExceeded', 'PRIVATE billing details', 'AGENT_RATE_LIMITED'],
+      [{ responseTooManyFailedAttempts: { httpStatusCode: 429 } }, 'PRIVATE retry details', 'AGENT_RATE_LIMITED'],
+      [{ response_too_many_failed_attempts: { http_status_code: 429 } }, 'PRIVATE retry details', 'AGENT_RATE_LIMITED'],
+      ['other', 'exceeded retry limit, last status: 429 Too Many Requests', 'AGENT_RATE_LIMITED'],
+      [{ responseTooManyFailedAttempts: { httpStatusCode: 503 } }, 'PRIVATE unavailable details', 'AGENT_TURN_FAILED'],
     ]) {
       process.env.PA_TEST_TURN_ERROR = JSON.stringify({ codexErrorInfo, message });
       await assert.rejects(providers.codex(base, 'test', context()), { message: code });

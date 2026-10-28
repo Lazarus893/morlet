@@ -60,7 +60,7 @@
 .journal-message-page .r-heading h2{display:none}.journal-message-page .r-heading .c-state{margin-right:auto}
 
 /* The agent selector and Send share one row and one target height. */
-.chat-conversation .chat-compose-footer{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center}
+.chat-conversation .chat-compose-footer{display:grid;grid-template-columns:minmax(0,1fr) minmax(136px,180px) auto;gap:12px;align-items:center}
 .chat-conversation .chat-agent-choice{display:block;min-width:0;max-width:300px;margin:0}
 .chat-conversation .chat-agent-choice select{display:block;box-sizing:border-box;width:100%;height:44px;margin:0;padding:10px 32px 10px 12px;font:inherit;font-size:14px;line-height:22px;text-overflow:ellipsis}
 .chat-conversation .chat-compose-footer>button{box-sizing:border-box;align-self:center;height:44px;min-height:44px;margin:0;padding-block:0}
@@ -68,6 +68,11 @@
 @media(max-width:680px){.chat-conversation .chat-agent-choice select{font-size:16px}}
 
 /* Match the compact desktop page without reducing the reading or input type. */
+.chat-message-text .openui-markdown-renderer .task-list-item { position: relative; list-style: none; }
+.chat-message-text .openui-markdown-renderer .task-list-item > input[type="checkbox"] {
+  position: absolute; inset-inline-start: -1.35em; top: .35em;
+  width: 14px; height: 14px; min-width: 0; margin: 0; padding: 0; accent-color: var(--accent);
+}
 @media (min-width: 901px) {
   .journal-message-page { padding: 4px 0; }
   .journal-message-page > h2 { margin-bottom: 12px; font-size: 24px; }
@@ -112,3 +117,124 @@
 
 /* Connection instructions appear where the corresponding action happens. */
 .chat-setup-grid .chat-field-wide{grid-column:1/-1}.chat-settings .chat-setup-grid{gap:12px;margin:14px 0}.chat-settings .chat-advanced{margin:12px 0}.chat-settings .chat-advanced>summary{font-size:13px;color:var(--muted);font-weight:400}.chat-settings .chat-advanced>label{margin-top:12px}.chat-settings .chat-connection-steps{margin:14px 0;padding-left:20px}.chat-settings .chat-connection-steps li{padding:0 0 8px 2px;line-height:1.65}.settings-agent-row{border-bottom:1px solid var(--line)}.settings-agent-row .settings-status-row{border:0;min-height:52px}.settings-agent-row details{font-size:13px}.settings-agent-row summary{cursor:pointer;color:var(--muted)}.settings-agent-row .settings-connection-help{font-size:13px;line-height:1.6;color:var(--muted);margin:0 0 12px}.chat-settings .chat-setup>form>.note{margin:8px 0 14px}
+
+.chat-attachment{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);overflow-wrap:anywhere}.chat-attachment:empty{display:none}.chat-attachment button{padding:2px 4px;font-size:12px}
+
+/* One composed writing surface, with controls aligned to its lower edge. */
+.chat-conversation #chat-compose{padding:0;border:1px solid #cbd5ca;border-radius:13px;background:var(--paper);overflow:visible;transition:border-color 160ms,background-color 160ms}
+.chat-conversation #chat-compose:focus-within{border-color:var(--accent)}
+.chat-conversation #chat-input{min-height:82px;max-height:230px;resize:vertical;padding:13px 14px 6px;border:0;border-radius:13px 13px 0 0;background:transparent;font-size:15px;line-height:1.6}
+.chat-conversation #chat-input:focus-visible{outline:0}
+.chat-conversation #chat-input::placeholder{color:var(--muted)}
+.chat-conversation .chat-compose-footer{grid-template-columns:minmax(0,1fr) minmax(132px,190px) auto;gap:8px;margin:0;padding:7px 9px 9px;align-items:center}
+.chat-conversation #chat-compose[data-direct=true] .chat-compose-footer{grid-template-columns:minmax(0,1fr) auto}
+.chat-conversation .chat-agent-choice[hidden]{display:none}
+.chat-conversation .chat-compose-footer>button{height:36px;min-height:36px;border-radius:8px;font-size:13px;transition:background-color 150ms,color 150ms,transform 120ms}
+.chat-conversation .chat-compose-footer>button:active:not(:disabled){transform:scale(.96)}
+.chat-conversation #chat-attach{padding:0 8px;justify-self:start;color:var(--muted)}
+.chat-conversation #chat-attach:hover{background:var(--soft);text-decoration:none;color:var(--ink)}
+.chat-conversation #chat-send{padding-inline:18px}
+.chat-conversation .chat-agent-choice select{height:36px;padding:6px 28px 6px 10px;font-size:13px;line-height:22px;background:var(--paper);border-radius:8px}
+.chat-conversation #chat-attachment:not(:empty){margin:3px 14px 6px;padding:5px 0;font-size:12px}
+.chat-conversation .chat-message{margin-bottom:22px;max-width:min(100%,760px)}
+.chat-conversation .chat-message.from-user{max-width:min(88%,680px);padding:11px 14px;background:#eff3ed;border-radius:12px 12px 3px 12px}
+.chat-conversation .chat-message-meta{gap:5px;margin-bottom:5px;font-size:12px;line-height:1.5;color:var(--muted)}
+.chat-conversation .chat-message-text{font-size:15px;line-height:1.7}
+.chat-conversation #chat-run-notice:not(:empty){display:flex;align-items:baseline;flex-wrap:wrap;gap:8px 14px;padding:10px 12px;margin-bottom:10px;border:1px solid #e6d9c8;border-radius:9px;background:#faf7f1}
+.chat-conversation #chat-run-notice>p{margin:0;font-size:13px}
+.chat-conversation #chat-run-notice>button{min-height:28px;padding:0;font-size:13px}
+.chat-conversation .chat-empty{display:grid;place-content:center;min-height:170px;padding:32px 12px;text-align:center;color:var(--muted)}
+.chat-conversation .chat-empty p{font-size:14px}
+.chat-conversation .chat-tracker[hidden]{display:none}
+.chat-conversation .chat-tracker>summary::after{content:'';width:7px;height:7px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg);transition:transform 180ms}
+.chat-conversation .chat-tracker[open]>summary::after{transform:rotate(225deg)}
+.chat-conversation .chat-tracker>summary:hover{color:var(--ink)}
+.chat-conversation .chat-tracked-run{padding:14px 2px}
+.chat-conversation .chat-run-actions{gap:14px;margin-top:8px}
+.chat-conversation .chat-run-filters select{height:34px;padding:5px 28px 5px 10px}
+.chat-conversation #chat-status{margin-top:6px;font-size:13px}
+html[data-motion=off] .chat-conversation *,html[data-motion=reduced] .chat-conversation *{transition:none!important;animation:none!important;scroll-behavior:auto!important}
+html[data-motion=off] .chat-conversation button:active,html[data-motion=reduced] .chat-conversation button:active{transform:none!important}
+@media(prefers-reduced-motion:reduce){.chat-conversation *{transition:none!important;animation:none!important;scroll-behavior:auto!important}.chat-conversation button:active{transform:none!important}}
+
+/* Consistent writing controls and a quieter message surface. */
+.chat-center{--chat-paper:var(--paper);--chat-line:var(--line);--chat-ink:var(--ink)}
+.chat-conversation #chat-compose{border-color:var(--control-line);border-radius:12px;background:var(--paper);box-shadow:none}
+.chat-conversation #chat-compose:focus-within{border-color:var(--accent);box-shadow:0 0 0 2px #315c4712}
+.chat-conversation #chat-input{height:68px;min-height:68px;padding:12px 16px 6px;border-radius:12px 12px 0 0;line-height:1.65}
+.chat-conversation .chat-compose-footer{padding:8px 10px 10px;gap:10px}
+.chat-conversation .chat-compose-footer>button,.chat-conversation .jui-bot-select{height:44px;min-height:44px;border-radius:8px}
+.chat-conversation .jui-bot-select{background:var(--page-subtle);border-color:transparent;box-shadow:none;font-size:13px}
+.chat-conversation .jui-bot-select:hover:not(:disabled),.chat-conversation .jui-bot-select[data-state=open]{background:var(--soft);border-color:#bfccba}
+.chat-conversation #chat-send{min-width:72px;padding-inline:18px}
+.chat-conversation .chat-message{margin-bottom:24px}
+.chat-conversation .chat-message-meta{margin-bottom:6px;color:var(--muted)}
+.chat-conversation .chat-message.from-user{background:#edf2e8;border:1px solid #e1e8db;padding:11px 15px;border-radius:12px 12px 3px 12px}
+.chat-conversation .chat-message-text{color:var(--ink)}
+.chat-conversation .chat-run-badge{font-size:12px;font-weight:500;padding:3px 8px;border-radius:5px}
+.chat-conversation .chat-tracker>summary{color:var(--muted)}
+.chat-conversation #chat-run-notice:not(:empty){border-color:#d7bda7;background:#fcf7ed}
+.chat-conversation .chat-approval{border:1px solid #d7bda7;border-radius:10px;background:#fcf7ed;padding:16px 18px}
+@media(min-width:701px){
+ body[data-page=settings] .shell{max-width:1360px}
+ .settings-columns{grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:40px}
+ .settings-columns>section,.settings-columns>#hub-settings-root{min-width:0}
+ .settings-columns>#hub-settings-root{border-left:1px solid var(--line);padding-left:32px}
+ .settings-columns h2{font-family:var(--font);font-size:17px;font-weight:600;line-height:1.5;margin:0 0 16px}
+ .settings-status-row{min-height:64px;gap:12px;padding:10px 0}
+ .settings-status-row strong{font-size:15px;font-weight:500}
+ .settings-agent-row .settings-status-row{min-height:64px}
+ .chat-settings .settings-agents-title{margin-top:28px}
+ .chat-settings .chat-setup{padding:14px 0}
+ .chat-settings .chat-advanced{border-top:1px solid var(--line);padding-top:8px}
+ .chat-settings .chat-setup-grid input,.chat-settings .chat-setup-grid select{min-height:44px;background:var(--paper);border-color:var(--control-line);border-radius:8px}
+ .chat-settings .chat-install{background:var(--page-subtle);border:1px solid var(--line);padding:12px 14px}
+}
+@media(min-width:701px) and (max-width:1100px){.settings-columns{gap:24px}.settings-columns>#hub-settings-root{padding-left:24px}}
+
+@media(min-width:701px) and (max-width:768px){.settings-columns{grid-template-columns:1fr;gap:28px}.settings-columns>#hub-settings-root{border-left:0;border-top:1px solid var(--line);padding:24px 0 0}}
+
+@media(min-width:901px){
+ .settings-columns>section{position:relative}
+ .settings-columns>section>h2{padding-right:136px}
+ .settings-columns .c-overview{position:absolute;top:0;right:0;min-height:26px;padding:0}
+ .settings-columns .c-monitor{min-height:36px;margin-bottom:12px;gap:12px}
+ .settings-columns .c-monitor p,.settings-columns .c-monitor button{font-size:13px}
+ .settings-columns .c-monitor button{min-height:36px;padding-block:4px}
+ .settings-columns .c-card{padding:8px 0}
+}
+/* A message's source and recovery belong to that message, not a global counter. */
+.chat-date-separator{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:12px;margin:12px 0 18px;font-variant-numeric:tabular-nums}
+.chat-date-separator::before,.chat-date-separator::after{content:"";height:1px;background:var(--line);flex:1}
+.chat-message-meta time,.chat-message-meta .chat-source{color:var(--muted);font-size:12px}
+.chat-message-meta time::before,.chat-message-meta .chat-source::before{content:"·";margin:0 5px 0 1px}
+.chat-message.is-located{outline:2px solid var(--accent);outline-offset:6px;border-radius:6px;animation:chat-locate 1.6s ease-out both}
+@keyframes chat-locate{from{background:var(--soft)}to{background:transparent}}
+.chat-message-recovery{border-left:2px solid var(--warning);padding:6px 0 6px 12px;margin:12px 0 2px;font-size:13px;color:var(--warning)}
+.chat-message-recovery p{margin:0 0 3px;line-height:1.6}
+.chat-message-recovery button{min-height:32px;margin-right:12px;padding:3px 0;font-size:13px}
+.chat-running{font-size:12px;color:var(--muted)}
+.chat-delivery.needs-attention{color:var(--warning)}
+.chat-draft-suggestion{display:flex;align-items:center;gap:10px;padding:4px 12px;font-size:12px;color:var(--muted)}
+.chat-draft-suggestion[hidden]{display:none}
+.chat-draft-suggestion button{font-size:12px;min-height:30px;padding:2px 0}
+.chat-owner-binding{padding:8px 0;border-bottom:1px solid var(--line);font-size:13px;overflow-wrap:anywhere}
+.chat-owner-control{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:4px 0}
+.chat-owner-control small{font-size:12px;color:var(--muted)}
+.chat-owner-control button{font-size:12px;min-height:32px}
+@media(prefers-reduced-motion:reduce){.chat-message.is-located{animation:none}}
+html[data-motion=off] .chat-message.is-located,html[data-motion=reduced] .chat-message.is-located{animation:none}
+
+/* Source ink sits on the paper; the words, not the tint, identify the channel. */
+.chat-conversation .chat-message-meta{flex-wrap:wrap;column-gap:7px;row-gap:2px}
+.chat-message-meta .chat-source{display:inline-flex;align-items:center;gap:4px;font-weight:500;white-space:nowrap;line-height:1.5}
+.chat-message-meta .chat-source::before{content:none}
+.chat-channel-icon{display:block;flex:none}
+.chat-message[data-channel=weixin] .chat-source{color:var(--accent)}
+.chat-message[data-channel=imessage] .chat-source{color:var(--text-secondary,var(--muted))}
+.chat-conversation .chat-message.from-user[data-channel=weixin]{background:#edf2e8;border-color:#dbe5d8}
+.chat-conversation .chat-message.from-user[data-channel=imessage]{background:#f0f2ef;border-color:#dce2dc}
+.chat-conversation .chat-message:not(.from-user)[data-channel]{padding-inline-start:12px;border-inline-start:2px solid var(--line)}
+.chat-conversation .chat-message:not(.from-user)[data-channel=weixin]{border-inline-start-color:#becfbd}
+.chat-message[data-channel] .chat-delivery{margin-top:5px;font-size:12px;line-height:1.5}
+.chat-message[data-channel] .chat-delivery.needs-attention{color:var(--warning);font-weight:500}

@@ -69,3 +69,48 @@ button:active:not(:disabled){transform:translateY(1px)}
  .shell { padding: 16px 16px 0; }
  .intro { margin-bottom: 20px; padding-bottom: 16px; }
 }
+
+/* Morlet: one desktop grid, an ink-green cover and clean writing paper. */
+:root{--bg:#f7f8f5;--paper:#fffefb;--ink:#242c27;--muted:#59665e;--soft:#eaf0e9;--line:#dce3da;--cover:#263f32;--page-subtle:#f4f5ef;--control-line:#819080;--serif:"Songti SC","STSong","Noto Serif CJK SC","SimSun",serif;--ease-out:cubic-bezier(.22,1,.36,1)}
+body{background:var(--bg)}
+.top .brand{align-items:center;gap:10px;color:var(--cover)}
+.top .brand strong{font-size:26px;font-weight:600;letter-spacing:-.04em;line-height:1}
+.top .brand img,.top .brand-mark{display:block;width:32px;height:32px;object-fit:contain;flex:none}
+.top .nav{gap:4px}
+.top .nav>button{min-height:40px;padding:8px 18px;border:1px solid transparent;border-radius:8px;color:var(--muted);font-size:14px;font-weight:500;transition:background-color 160ms,color 160ms,border-color 160ms,transform 120ms var(--ease-out)}
+.top .nav>button:hover:not(:disabled){background:#e9eee5;color:var(--ink)}
+.top .nav>button[aria-current=page]{border-color:#cfd8ca;background:var(--paper);color:var(--accent);font-weight:600}
+button.primary{background:var(--accent);box-shadow:inset 0 1px 0 #ffffff14}
+button.outline{border-color:#a8b5a7;background:var(--paper)}
+button.outline:hover:not(:disabled){border-color:#7c8e7d;background:var(--soft)}
+button:disabled{opacity:.58}
+input,textarea,select{caret-color:var(--accent)}
+input::placeholder,textarea::placeholder{color:var(--muted)}
+:is(button,input,textarea,select,summary,a):focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+dialog{background:var(--paper);border-color:#c7d1c2;box-shadow:0 24px 80px #152b2326}
+dialog::backdrop{background:#1b302745;backdrop-filter:blur(4px)}
+.dialog-body h2{font-family:var(--serif);font-weight:600;line-height:1.4}
+.toast{border:1px solid #ffffff14;background:var(--cover)}
+@media(min-width:701px){
+ body .top,body[data-page=journal] .top{width:calc(100% - 64px);max-width:1360px;min-height:80px;padding:16px 0;gap:24px}
+ body .shell{width:calc(100% - 64px);max-width:1360px;margin:0 auto;padding:8px 0 24px}
+ body[data-page=settings] .shell{width:calc(100% - 64px);max-width:1360px;padding:22px 28px 28px;background:var(--paper);border:1px solid #d2dacd;border-left:5px solid var(--cover);border-radius:14px;box-shadow:none}
+ body[data-page=settings] .page-head{margin:0 0 12px;padding:0}
+ body[data-page=settings] .page-head h1{font-family:var(--serif);font-size:27px;font-weight:600;line-height:1.4}
+ body[data-page=settings] .panel{border:0;border-top:1px solid var(--line);border-radius:0;background:transparent;padding:16px 0 0;margin-top:24px}
+ body[data-page=settings] .panel .panel{margin-top:16px;padding-top:16px}
+ body[data-page=settings] :is(.field input,.field select){min-height:44px;border-color:var(--control-line);background:var(--paper);border-radius:8px}
+ #settings-panel-connections>.actions{justify-content:flex-end;margin:0 0 16px;gap:20px}
+ #settings-panel-connections>.actions button{min-height:32px;padding-block:4px;font-size:12px}
+}
+@media(min-width:701px) and (max-width:1100px){
+ body .top,body[data-page=journal] .top,body .shell,body[data-page=settings] .shell{width:calc(100% - 40px)}
+ body[data-page=settings] .shell{padding:20px}
+}
+@media(prefers-reduced-motion:reduce){.top .nav>button{transition:none}}
+html[data-motion=off] .top .nav>button,html[data-motion=reduced] .top .nav>button{transition:none}
+
+@media(min-width:901px){
+ #settings-panel-connections{position:relative}
+ #settings-panel-connections>.actions{position:absolute;right:0;top:-58px;margin:0}
+}

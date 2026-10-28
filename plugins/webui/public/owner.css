@@ -1,0 +1,31 @@
+.owner-page{display:grid;place-items:center;min-height:100dvh;margin:0;padding:40px;box-sizing:border-box;background:#f2f3ee;color:var(--ink,#242c27)}
+.owner-book{display:grid;grid-template-columns:minmax(360px,.9fr) minmax(0,1.1fr);width:min(100%,1000px);min-height:600px;background:#fffefa;border:1px solid #dce1d7;border-radius:8px 18px 18px 8px;overflow:hidden;box-shadow:0 2px 3px #24362a06,0 22px 60px -30px #24362a3b;animation:owner-arrive .48s cubic-bezier(.22,1,.36,1) both}
+.owner-leaf{position:relative;display:flex;flex-direction:column;padding:38px 48px 40px;border-left:5px solid #315c47;min-width:0}
+.owner-brand{display:flex;align-items:center;gap:10px;font-size:23px;line-height:1.2;font-weight:600;letter-spacing:-.7px}
+.owner-brand img{display:block;width:40px;height:40px;object-fit:contain}
+.owner-entry{margin:auto 0;padding:56px 0 16px}
+.owner-book h1{font-family:"Songti SC","STSong","Noto Serif CJK SC","SimSun",serif;font-weight:600;font-size:30px;line-height:1.35;margin:0 0 32px;letter-spacing:.02em}
+.owner-book form{display:grid;gap:10px}
+.owner-book form[hidden]{display:none}
+.owner-book label{font-size:13px;font-weight:500;color:#555e55}
+.owner-book input{width:100%;box-sizing:border-box;min-height:46px;border:1px solid #cbd3c9;border-radius:7px;background:#fff;color:#242c27;font:inherit;line-height:1.5;padding:10px 12px;transition:border-color .16s ease,box-shadow .16s ease}
+.owner-book input:focus-visible{outline:2px solid #315c47;outline-offset:3px}
+.owner-book input[aria-invalid=true]{border-color:var(--danger,#9c453d)}
+.owner-book form button{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:46px;margin-top:10px;padding:10px 15px;border-radius:7px;background:#315c47;border:1px solid #315c47;color:#fff;font-size:14px;font-weight:500;transition:background .16s ease,transform .16s ease}
+.owner-book form button:hover:not(:disabled){background:#244a37}
+.owner-book form button:active:not(:disabled){transform:translateY(1px)}
+.owner-book form button:focus-visible,.owner-book summary:focus-visible{outline:2px solid #315c47;outline-offset:3px}
+.owner-book form button:disabled{cursor:wait;opacity:.65}
+.owner-book [role=status]{font-size:13px;line-height:1.6;min-height:1.6em;margin:12px 0 0;color:#555e55}
+.owner-book [data-error=true]{color:var(--danger,#9c453d)}
+.owner-book details{margin-top:18px;font-size:12px;line-height:1.6;color:#657063}
+.owner-book summary{cursor:pointer;width:fit-content;padding:4px 0;transition:color .16s ease}
+.owner-book summary:hover{color:#315c47}
+.owner-book details p{margin:12px 0 6px}
+.owner-book code{display:block;overflow-wrap:anywhere;color:#394c3d;background:#f1f3ee;border-radius:4px;padding:7px 9px;font-size:12px}
+.owner-cover{margin:0;min-width:0;overflow:hidden;background:#e9e9e0;border-left:1px solid #dde0d4}
+.owner-cover img{display:block;width:100%;height:100%;object-fit:cover;object-position:62% center}
+@keyframes owner-arrive{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@media(max-width:800px){.owner-page{padding:28px}.owner-book{grid-template-columns:minmax(320px,1fr) minmax(0,.7fr);min-height:560px}.owner-leaf{padding:30px}.owner-cover img{object-position:60% center}}
+@media(max-width:600px){.owner-page{padding:20px}.owner-book{display:block;max-width:420px;min-height:0}.owner-leaf{padding:28px 28px 34px}.owner-entry{padding-top:48px}.owner-cover{display:none}.owner-book h1{font-size:28px}}
+@media(prefers-reduced-motion:reduce){.owner-book{animation:none}.owner-book input,.owner-book form button,.owner-book summary{transition:none}}

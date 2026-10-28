@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { promisify } from 'node:util';
+import { createHash } from 'node:crypto';
 import { bridgeTransport, validateBridgeConfig } from './companion.mjs';
 import { failure } from './store.mjs';
 const exec = promisify(execFile);
@@ -125,10 +126,26 @@ export class IMessageCompanion {
       incoming: this.db.prepare('SELECT body FROM inbox WHERE body IS NOT NULL ORDER BY row_id').all().map(r => JSON.parse(r.body)) };
   }
   close() { this.db.close(); }
+  generationFingerprint(generation) {
+    return createHash('sha256').update(JSON.stringify([this.get('identity'), this.get('generation'), generation])).digest('hex');
+  }
   async prepare() {
     await this.check();
     const current = this.database.baseline();
-    if (this.get('generation') && this.get('generation') !== current.generation) throw failure('IMESSAGE_DATABASE_CHANGED');
+    if (this.get('generation') && this.get('generation') !== current.generation) {
+      const fingerprint = this.generationFingerprint(current.generation);
+      const response = await this.status(false, 'IMESSAGE_DATABASE_CHANGED', fingerprint);
+      if (response?.recovery?.fingerprint !== fingerprint || this.db.prepare('SELECT COUNT(*) AS n FROM inbox WHERE body IS NOT NULL').get().n) throw failure('IMESSAGE_DATABASE_CHANGED');
+      await this.check();
+      const verified = this.database.baseline();
+      if (!verified.cursor || verified.generation !== current.generation) throw failure('IMESSAGE_DATABASE_CHANGED');
+      this.transaction(() => {
+        // Keep delivery IDs permanently: uncertain sends must never be replayed.
+        this.db.exec("UPDATE outbox SET state='unknown',guid=NULL,message_id=NULL,acked_state=NULL,error='IMESSAGE_DATABASE_CHANGED' WHERE state IN ('sending','submitted','sent','unknown')");
+        this.set('generation', verified.generation); this.set('cursor', verified.cursor);
+        this.set('activatedAt', this.now()); this.set('recoveryId', response.recovery.id);
+      });
+    }
     if (!current.cursor) throw failure('IMESSAGE_CHAT_NOT_FOUND');
     this.transaction(() => {
       this.set('generation', current.generation);
@@ -136,8 +153,13 @@ export class IMessageCompanion {
     });
     this.nextCheck = this.now() + 15000;
   }
-  status(ready = true, error) {
+  status(ready = true, error, recoveryFingerprint) {
+    if (!ready && error === 'IMESSAGE_DATABASE_CHANGED' && !recoveryFingerprint) {
+      const current = this.database.baseline();
+      if (this.get('generation') !== current.generation) recoveryFingerprint = this.generationFingerprint(current.generation);
+    }
     return this.transport('status', { ready, error, botAddress: this.config.botAddress, peer: this.config.peer,
+      ...(recoveryFingerprint && { recoveryFingerprint }),
       lastInboundAt: Number(this.get('lastInboundAt') || 0), pendingInputs: this.db.prepare('SELECT COUNT(*) AS n FROM inbox WHERE body IS NOT NULL').get().n });
   }
   accept(row) {
@@ -158,7 +180,7 @@ export class IMessageCompanion {
           if (normalizeMessageAddress(record.destination_caller_id) !== this.config.botAddress) throw failure('IMESSAGE_ACCOUNT_MISMATCH');
           const text = row.text ?? '';
           if (typeof text !== 'string' || text.length > 16000) throw failure('IMESSAGE_TOO_LARGE');
-          if (text.trim() || row.attachments?.length) input = { peer: this.config.peer, text, requestId: row.guid, attachments: Boolean(row.attachments?.length) };
+          if (text.trim() || row.attachments?.length) input = { peer: this.config.peer, text, requestId: row.guid, sourceMessageId: row.guid, occurredAt: created, attachments: Boolean(row.attachments?.length) };
         }
       }
     }

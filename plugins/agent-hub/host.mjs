@@ -1,9 +1,10 @@
+import { botTool } from './bots.mjs';
 import { memoryTool } from './memory.mjs';
 import { mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { AgentHub, failure } from './store.mjs';
-import { AgentCompanion } from './companion.mjs';
+import { createAgentCompanion } from './companion.mjs';
 import { acquireCompanionLock } from './lock.mjs';
 import { hubConfig } from './config.mjs';
 import { dshProvider } from './dsh.mjs';
@@ -39,14 +40,14 @@ export async function startHost(ctx, root) {
       try {
         const { token } = JSON.parse(readFileSync(path, 'utf8'));
         hub.registerHost(agent, token);
-        const companion = new AgentCompanion({ config: { ...agent, token }, statePath: join(directory, 'state.json'), provider: agent.provider === 'dsh' ? dshProvider(ctx) : providers[agent.provider],
+        const companion = createAgentCompanion({ config: { ...agent, token }, statePath: join(directory, 'state.json'), provider: agent.provider === 'dsh' ? dshProvider(ctx) : providers[agent.provider],
           transport: async (operation, input) => {
             if (operation === 'tool') {
               const run = hub.get('run', input.runId);
               if (run?.firstTaskId && ['xiaoman_tasks', 'xiaoman_reminders', 'xiaoman_routines'].includes(input.tool)) throw failure('FORBIDDEN');
               assertRoutineToolAccess(run, input.tool, input.arguments);
             }
-            const handler = operation === 'tool' && (input.tool === 'xiaoman_memory' ? memoryTool : input.tool === 'xiaoman_status' ? statusTool : input.tool === 'xiaoman_reminders' ? reminderTool : input.tool === 'xiaoman_journal' ? journalTool : input.tool === 'xiaoman_first_task' ? firstTaskTool : input.tool === 'xiaoman_sources' ? sourcesTool : input.tool === 'xiaoman_routines' ? routineTool : null);
+            const handler = operation === 'tool' && (input.tool === 'xiaoman_memory' ? memoryTool : input.tool === 'xiaoman_status' ? statusTool : input.tool === 'xiaoman_reminders' ? reminderTool : input.tool === 'xiaoman_journal' ? journalTool : input.tool === 'xiaoman_first_task' ? firstTaskTool : input.tool === 'xiaoman_sources' ? sourcesTool : input.tool === 'xiaoman_routines' ? routineTool : input.tool === 'xiaoman_bots' ? botTool : null);
             const result = handler ? await handler({ root, hub, journal, firstTasks, routines, token, input, read }) : hub[operation](token, input);
             if (operation === 'poll' && result.job?.firstTaskId) {
           const settings = await read();

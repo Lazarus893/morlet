@@ -25,3 +25,9 @@
 - 手账跟进回报复用 OpenUI 0.18.1 的 MarkDownRenderer（已有 react-markdown 及其传递依赖），禁用原始 HTML 与远程图片，只允许 http/https 链接。构建脚本按实际打包模块自动收集依赖许可到 journal-surfaces.js.LEGAL.txt；没有新增 npm 依赖。
 
 - 产品介绍 `docs/product/index.html` 内嵌 Anime.js 4.5.0（MIT），来源 https://animejs.com/ ，完整MIT许可随HTML保留。该库仅用于介绍页，不是产品运行依赖。介绍页中的Messages图标来自Apple官方指南 https://support.apple.com/en-ca/guide/iphone/iph82fb73ba3/ios ，微信图标来自 https://www.wechat.com/en/ ，仅标识对应接入渠道，商标权属于各自权利人。截图使用隔离演示数据；消息派发场景明确标为模拟。
+
+- `pdfjs-dist` 6.4.299：Mozilla PDF.js，Apache-2.0，https://github.com/mozilla/pdf.js 。用于已授权文件中的 PDF 嵌入文字提取；只传字节，不加载文档链接。`mammoth` 1.13.0：BSD-2-Clause，https://github.com/mwilliamson/mammoth.js ，使用 extractRawText 读取 DOCX，不渲染 HTML、不读取外部文件。均在有内存和时间限制的 Worker 中执行，完整许可证随 npm 包保留，版本与完整性由 package-lock.json 固定。
+
+## Better Auth
+
+主人认证使用 `better-auth` 1.7.14（MIT），通过官方 SQLite 适配器、数据库迁移和 API 管理密码与会话。上游：https://github.com/better-auth/better-auth 。本项目关闭遥测、网页注册和未使用的认证路由。

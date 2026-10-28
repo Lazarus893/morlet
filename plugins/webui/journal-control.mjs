@@ -1,3 +1,4 @@
+import { guideSources } from '../life-journal/guide.mjs';
 import { hubConfig, roleAgent } from '../agent-hub/config.mjs';
 import { JournalStore } from '../life-journal/store.mjs';
 import { projectWorkpages } from '../life-journal/workpages.mjs';
@@ -44,12 +45,13 @@ export function createJournalControl({ root, rpc = control, runtimeFactory = cre
       const current = snapshot.layout.widgets.find(widget => widget.itemId === item.id);
       const kinds = availableWidgetKinds(item);
       const kind = kinds.includes(item.taskType) ? item.taskType : current?.kind || kinds[0];
-      const followupReport = item.id === snapshot.guide?.resultItemId && report ? report : item.conversationId ? linkedReports.get(item.id) : null;
+      const linkedReport = linkedReports.get(item.id);
+      const followupReport = item.id === snapshot.guide?.resultItemId && report ? report : item.conversationId && linkedReport?.run ? linkedReport : null;
       const initialTitle = item.source?.text?.trim().split(/\n/)[0].replace(/\s+/g, ' ').slice(0, 80);
       const automaticTitle = item.titleOrigin === 'message' || !item.titleOrigin && (item.conversationId && item.title === initialTitle || item.id === snapshot.guide?.resultItemId && item.title.startsWith('跟进：'));
       const generatedTitle = followupReport?.chapterTitle || followupReport?.run?.report?.title;
-      const displayTitle = automaticTitle && typeof generatedTitle === 'string' && Array.from(generatedTitle).length <= 60 && !/[\r\n]/.test(generatedTitle) ? generatedTitle : item.title;
-      return { ...item, ...(displayTitle !== item.title && { displayTitle }), ...(contentPreviews && { contentPreviews }), ...(contentSeries && { contentSeries }), ...(followupReport ? { followupReport } : {}), primaryProjection: kind ? projection(item, kind) : null,
+      const displayTitle = automaticTitle && typeof generatedTitle === 'string' && Array.from(generatedTitle).length <= 60 && !/[\r\n]/.test(generatedTitle) ? generatedTitle : automaticTitle ? Array.from(item.title.split(/[\n。！？；;，,]/)[0]).slice(0, 24).join('') : item.title;
+      return { ...item, ...(displayTitle !== item.title && { displayTitle }), ...(contentPreviews && { contentPreviews }), ...(contentSeries && { contentSeries }), ...(followupReport ? { followupReport } : {}), ...(linkedReports.get(item.id)?.originSourceRef && { sourceRef: linkedReports.get(item.id).originSourceRef }), primaryProjection: kind ? projection(item, kind) : null,
         ...(item.source?.kind === 'guide' && { ...(snapshot.guide ? { guide: snapshot.guide } : {}), guideProjections: kinds.map(kind => projection(item, kind)) }) };
     });
     return { ...snapshot, ...(snapshot.guide && { guide: { ...snapshot.guide, report } }), items: projectedItems, layout: { ...snapshot.layout, workpages: projectWorkpages(snapshot, { now: store.now() }), widgets: snapshot.layout.widgets.map(widget => ({ ...widget, projection: items.has(widget.itemId) ? projection(items.get(widget.itemId), widget.kind) : null })) } };
@@ -72,7 +74,7 @@ export function createJournalControl({ root, rpc = control, runtimeFactory = cre
       if (selected.provider === 'dsh') {
         const live = host ?? await getRuntime(root, settings, rpc);
         const matched = live.configRevision === settings.revision;
-        return { designAvailable: Boolean(live.journalAvailable && matched), designReason: live.journalAvailable ? matched ? '' : '已保存设置尚未由小满加载，当前保留原排版。' : '尚未提供手账设计服务，当前使用基础排版。' };
+        return { designAvailable: Boolean(live.journalAvailable && matched), designReason: live.journalAvailable ? matched ? '' : '已保存设置尚未由Morlet加载，当前保留原排版。' : '尚未提供手账设计服务，当前使用基础排版。' };
       }
       const installed = selected.command ? await executableAvailable(selected.command) : Boolean(settings.installed);
       return { designAvailable: installed, designReason: installed ? '' : '尚未找到所选 Agent，当前使用基础排版。' };
@@ -198,6 +200,11 @@ export function createJournalControl({ root, rpc = control, runtimeFactory = cre
     const result = store.applyPreview(scope, input, { timeZone: defaultZone(settings) });
     return { ...project(result, settings), scope, ...await availability(settings) };
   }
+  async function guideSourcesSnapshot(value, settings) {
+    const scope = await authorize(value, settings);
+    const sources = guideSources(store.db, store.snapshot(scope), scope, store.now());
+    return { sources, available: sources.length > 0 };
+  }
   async function startGuide(input, settings) {
     if (closing) throw failure('STORAGE_UNAVAILABLE');
     const scope = await authorize(input?.scope, settings);
@@ -213,7 +220,7 @@ export function createJournalControl({ root, rpc = control, runtimeFactory = cre
     if (!sameScope(scope, LOCAL)) throw failure('FORBIDDEN');
     return store.followGuide(scope, input);
   }
-  return { store, snapshot, mutate, preview, applyPreview, startGuide, followGuide, requestDesign, close: async () => {
+  return { store, snapshot, guideSourcesSnapshot, mutate, preview, applyPreview, startGuide, followGuide, requestDesign, close: async () => {
     closing = true;
     await Promise.allSettled([...pending]);
     await loading?.catch(() => {});

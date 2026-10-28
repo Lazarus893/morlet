@@ -227,17 +227,19 @@ export class JournalStore {
     const key = scopeKey(scope);
     return this.transaction(() => { const state = this.read(key); this.apply(state, request, context); this.save(key, state); return publicState(state); });
   }
-  ensureConversation(scope, { conversationId, content }) {
+  ensureConversation(scope, { conversationId, content, taskKey }) {
     const key = scopeKey(scope); identifier(conversationId); str(content, 16000);
+    if (taskKey !== undefined) str(taskKey, 256);
     return this.transaction(() => {
-      const state = this.read(key), existing = state.items.find(item => item.conversationId === conversationId);
+      const state = this.read(key), existing = state.items.find(item => item.conversationId === conversationId && (taskKey === undefined || item.conversationTaskKey === taskKey));
       if (existing) return copy(existing);
-      const title = content.trim().split(/\n/)[0].replace(/\s+/g, ' ').slice(0, 80);
+      const title = Array.from(content.trim().split(/[\n。！？；;，,]/)[0].replace(/\s+/g, ' ')).slice(0, 24).join('');
       this.apply(state, { operation: 'add', revision: state.revision, values: {
         title, note: content.trim().slice(0, 10000),
         source: { kind: 'user', channel: 'web', text: content.trim() },
       } });
       const item = state.items.at(-1); item.conversationId = conversationId; item.titleOrigin = 'message';
+      if (taskKey !== undefined) item.conversationTaskKey = taskKey;
       this.save(key, state); return copy(item);
     });
   }

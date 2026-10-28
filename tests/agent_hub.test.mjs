@@ -1,3 +1,4 @@
+import { saveBot, botSessionKey } from '../plugins/agent-hub/bots.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, chmod, writeFile, readFile } from 'node:fs/promises';
@@ -18,12 +19,30 @@ async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'pa-hub-')); let now = Date.now();
   const hub = new AgentHub(root, { now: () => now });
   const pairing = hub.pair({ label: 'My local Codex' });
+  // This fixture explicitly binds the manager to its fake Codex endpoint.
+  saveBot(hub, { id: 'xiaoman', version: 1, values: { endpointId: pairing.endpointId } });
   const c = hub.newConversation({ endpointId: pairing.endpointId });
   t.after(async () => { hub.close(); await rm(root, { recursive: true, force: true }); });
   const submit = (content = 'hello', requestId = crypto.randomUUID(), source = { channel: 'web' }) => hub.submit({ conversationId: c.id, content, requestId, source });
   const poll = (more = {}) => hub.poll(pairing.token, { runnerId: 'test-runner', ...more });
   return { root, hub, c, pairing, submit, poll, advance: ms => { now += ms; } };
 }
+
+test('iMessage recovery is scoped to a fresh changed database and never makes the channel ready by itself', async t => {
+  const f = await fixture(t);
+  const channel = f.hub.pairChannel({ peer: 'owner@example.invalid', botAddress: 'bot@example.invalid', conversationId: f.c.id, label: 'Recovery fixture' });
+  const fingerprint = 'a'.repeat(64), input = { ready: false, error: 'IMESSAGE_DATABASE_CHANGED', botAddress: 'bot@example.invalid', peer: 'owner@example.invalid', lastInboundAt: 0, pendingInputs: 0, recoveryFingerprint: fingerprint };
+  f.hub.channelStatus(channel.token, input);
+  assert.throws(() => f.hub.recoverChannel({ channelId: channel.channelId, fingerprint: 'b'.repeat(64) }), { code: 'IMESSAGE_RECOVERY_STALE' });
+  f.hub.recoverChannel({ channelId: channel.channelId, fingerprint });
+  assert.equal(f.hub.snapshot().channels[0].ready, false);
+  assert.equal(f.hub.channelStatus(channel.token, input).recovery.fingerprint, fingerprint);
+  assert.equal(f.hub.channelStatus(channel.token, { ...input, recoveryFingerprint: 'b'.repeat(64) }).recovery, undefined);
+  f.hub.channelStatus(channel.token, { ...input, pendingInputs: 1 });
+  assert.throws(() => f.hub.recoverChannel({ channelId: channel.channelId, fingerprint }), { code: 'IMESSAGE_RECOVERY_PENDING_INPUTS' });
+  f.hub.channelStatus(channel.token, input); f.advance(46000);
+  assert.throws(() => f.hub.recoverChannel({ channelId: channel.channelId, fingerprint }), { code: 'IMESSAGE_RECOVERY_STALE' });
+});
 
 test('background messages without an endpoint do not stall queued user turns', async t => {
   const f = await fixture(t);
@@ -35,9 +54,9 @@ test('background messages without an endpoint do not stall queued user turns', a
   const job = f.poll().job;
   assert.equal(job.id, first.id);
   assert.deepEqual(job.context, [
-    { role: 'assistant', agent: '小满', text: '替你留意到一条仓库更新。' },
-    { role: 'user', agent: '小满', text: '/help' },
-    { role: 'assistant', agent: '小满', text: '旧执行端的回复' },
+    { role: 'assistant', agent: 'Mori', text: '替你留意到一条仓库更新。' },
+    { role: 'user', agent: 'Mori', text: '/help' },
+    { role: 'assistant', agent: 'Mori', text: '旧执行端的回复' },
   ]);
   assert.equal(f.hub.get('endpoint', f.pairing.endpointId).lastSeen, f.hub.now());
   assert.equal(f.hub.get('run', first.id).status, 'running');
@@ -68,7 +87,7 @@ test('status reads channel-host evidence, separates agents and channels, and omi
   const options = { hub: f.hub, root: f.root, token: f.pairing.token, input, read: async () => settings,
     rpc: async (path, request) => { assert.equal(path, settings.socket); assert.deepEqual(request, { command: 'pa', operation: 'snapshot' }); return { kind: 'pa', data: host }; } };
   const status = await statusTool(options);
-  assert.deepEqual(status.channels.map(c => [c.id, c.state, c.boundToConversation]), [['web', 'enabled', true], ['weixin', 'online', true], ['imessage', 'online', true]]);
+  assert.deepEqual(status.channels.map(c => [c.id, c.state, c.boundToConversation]), [['web', 'enabled', true], ['weixin', 'online', false], ['imessage', 'online', true]]);
   assert.equal(status.agents[0].provider, 'codex');
   for (const secret of ['private-account', 'private-peer', 'private-token', paired.token, f.pairing.token, 'owner@example.invalid']) assert.equal(JSON.stringify(status).includes(secret), false);
   f.advance(100000);
@@ -209,9 +228,10 @@ test('reports are lease-scoped, bounded, and reject unsafe artifacts atomically'
   assert.throws(() => f.hub.tool(f.pairing.token, { ...base, callId: 'cancelled' }), { code: 'FORBIDDEN' });
 });
 
-test('Web, Weixin and iMessage share task identity, native sessions, reports and real file artifacts without broadcasting', async t => {
+test('Web, Weixin and iMessage keep owner task receipts while isolating route histories and native sessions without broadcasting', async t => {
   const f = await fixture(t), sent = [], dshToken = 'three-channel-dsh-fixture-token';
   f.hub.registerHost({ id: 'dsh', label: 'DSH', provider: 'dsh' }, dshToken);
+  saveBot(f.hub, { id: 'xiaoman', version: f.hub.get('bot', 'xiaoman').version, values: { endpointId: 'dsh' } });
   f.hub.selectEndpoint({ conversationId: f.c.id, endpointId: 'dsh' });
   f.hub.bind({ channel: 'weixin', account: 'wx-fixture', peer: 'owner', conversationId: f.c.id });
   const wx = new HubChannel({ root: f.root, channel: 'weixin', account: 'wx-fixture', allowed: p => p === 'owner', autoFlush: false, send: async (...args) => sent.push(args) });
@@ -241,7 +261,7 @@ test('Web, Weixin and iMessage share task identity, native sessions, reports and
   const wxInput = { peer: 'owner', text: '微信读取', requestId: 'three-wx-read' };
   await wx.receive(wxInput); await wx.receive(wxInput);
   const wxJob = f.hub.poll(dshToken, { runnerId: 'dsh-fixture' }).job, wxTool = tools(dshToken, wxJob);
-  assert.equal(wxJob.sessionId, 'native-dsh-three');
+  assert.equal(wxJob.sessionId, null, 'Bot identity starts a distinct native session');
   assert.deepEqual(wxTool('xiaoman_tasks', { operation: 'list' }, 'list').tasks[0], task);
   wxTool('xiaoman_report', { summary: `微信读到 ${task.id} pending v1`, outcome: 'completed' }, 'report');
   finish(dshToken, wxJob, 'native-dsh-three', '微信读到同一待办'); await wx.flush(); await wx.flush();
@@ -250,7 +270,9 @@ test('Web, Weixin and iMessage share task identity, native sessions, reports and
   const imInput = { peer: 'owner@example.invalid', text: 'iMessage 完成', requestId: 'three-im-done' };
   await im.receive(imInput); await im.receive(imInput);
   const imJob = f.hub.poll(dshToken, { runnerId: 'dsh-fixture' }).job, imTool = tools(dshToken, imJob);
-  assert.equal(imJob.sessionId, 'native-dsh-three');
+  assert.equal(imJob.sessionId, null, 'a separate IM route does not inherit another route native context');
+  assert.notEqual(imJob.conversationId, wxJob.conversationId);
+  assert.equal(JSON.stringify(imJob.continuation).includes('微信读取'), false);
   const doneArgs = { operation: 'done', taskId: task.id, version: task.version };
   const done = imTool('xiaoman_tasks', doneArgs, 'done').task;
   assert.deepEqual(imTool('xiaoman_tasks', doneArgs, 'done').task, done);
@@ -271,7 +293,7 @@ test('Web, Weixin and iMessage share task identity, native sessions, reports and
   finish(f.pairing.token, final, 'native-codex-three', 'Web 核对成功');
   const reopened = new AgentHub(f.root); t.after(() => reopened.close());
   const snapshot = reopened.snapshot();
-  assert.equal(snapshot.conversations.length, 1); assert.equal(snapshot.tasks.length, 1);
+  assert.equal(snapshot.conversations.length, 2); assert.equal(snapshot.tasks.length, 1);
   assert.deepEqual(snapshot.runs.map(r => r.channel), ['web', 'web', 'weixin', 'imessage', 'web']);
   assert.ok(snapshot.runs.every(r => r.status === 'completed' && r.report?.summary));
   assert.equal(snapshot.runs[1].report.outcome, 'partial');
@@ -279,7 +301,7 @@ test('Web, Weixin and iMessage share task identity, native sessions, reports and
   assert.equal(snapshot.runs.at(-1).report.artifacts[0].path, artifact);
   assert.match(await readFile(artifact, 'utf8'), /done v2/);
   assert.deepEqual(snapshot.deliveries.map(d => d.state), ['sent', 'read']);
-  assert.equal(reopened.all('session').length, 2);
+  assert.equal(reopened.all('session').length, 4, 'each route manager, legacy DSH and Codex keep distinct native sessions');
 });
 
 test('companion exposes reporting to native agents; a later failure retains the report without marking success', async t => {
@@ -377,7 +399,7 @@ test('Web and Weixin share one native session; inbound and results are idempoten
   const event = (seq, type, value) => f.hub.event(f.pairing.token, { runId: job.id, lease: job.lease, seq, type, value });
   event(1, 'session', 'native-123'); event(2, 'completed', 'first answer'); event(2, 'completed', 'first answer');
   await channel.flush(); assert.equal(sent.length, 1); assert.equal(sent[0][0], 'owner');
-  f.submit('continue'); const next = f.poll().job; assert.equal(next.sessionId, 'native-123');
+  f.hub.submit({ conversationId: f.c.id, botId: 'xiaoman', content: 'continue', requestId: 'continue' }); const next = f.poll().job; assert.equal(next.sessionId, 'native-123');
   f.hub.event(f.pairing.token, { runId: next.id, lease: next.lease, seq: 1, type: 'completed', value: 'Web answer' });
   await channel.flush(); assert.equal(sent.length, 1);
   const snapshot = f.hub.snapshot(); assert.equal(snapshot.messages.length, 4);
@@ -393,7 +415,7 @@ test('lease expiry never reruns work; cancel fences late results and frees queue
   assert.ok(f.poll().job); assert.equal(f.hub.all('message').some(m => m.text === 'late'), false);
 });
 
-test('reset and its receipt commit together, cancelling old runs and preventing duplicate conversations', async t => {
+test('reset and its receipt commit together without cancelling work or manufacturing conversations', async t => {
   const f = await fixture(t);
   const channel = new HubChannel({ root: f.root, channel: 'weixin', account: 'acct', allowed: () => true, autoFlush: false });
   t.after(() => channel.close());
@@ -401,14 +423,15 @@ test('reset and its receipt commit together, cancelling old runs and preventing 
   f.submit(); f.submit('queued'); f.poll();
   const reset = { peer: 'owner', text: '/reset', requestId: 'reset-once' };
   await Promise.all([channel.receive(reset), channel.receive(reset)]);
-  assert.equal(f.hub.all('conversation').length, 2);
-  assert.deepEqual(f.hub.all('run').map(r => r.status), ['cancelling', 'cancelled']);
+  assert.equal(f.hub.all('conversation').length, 1);
+  assert.deepEqual(f.hub.all('run').map(r => r.status), ['running', 'queued']);
   const next = f.hub.binding('weixin', 'acct', 'owner').conversationId;
-  assert.notEqual(next, f.c.id);
-  await channel.receive(reset); assert.equal(f.hub.all('conversation').length, 2);
+  assert.equal(next, f.c.id);
+  const epoch = f.hub.conversation(next).contextEpoch;
+  await channel.receive(reset); assert.equal(f.hub.all('conversation').length, 1); assert.equal(f.hub.conversation(next).contextEpoch, epoch);
   await channel.receive({ peer: 'owner', text: 'start again', requestId: 'after-reset' });
   assert.equal(f.hub.all('run').at(-1).conversationId, next);
-  assert.equal(f.poll().job, null, 'old process must stop before a new conversation executes');
+  assert.equal(f.poll().job, null, 'the new context waits until in-flight work finishes');
 });
 
 test('approvals bind to one conversation and endpoint; denial, expiry and duplicate decisions fail closed', async t => {
@@ -454,6 +477,7 @@ test('Codex refreshes obsolete native tools while retaining the Hub conversation
       const index = seen.length;
       seen.push({ sessionId: context.sessionId, knownTools: context.knownTools });
       assert.equal(context.sessionId || null, [null, 'initial-native', null, 'refreshed-native'][index]);
+      assert.match(prompt, /本轮情况说明写给人读/); // Also reaches native resumes that retain earlier system instructions.
       if (index === 2) {
         assert.deepEqual(context.knownTools, []);
         assert.match(prompt, /只检查关注仓库，不检查全网热门/);
@@ -469,7 +493,7 @@ test('Codex refreshes obsolete native tools while retaining the Hub conversation
   t.after(() => companion.stop());
   for (let index = 0; index < 4; index++) {
     if (index === 2) {
-      const session = f.hub.get('session', JSON.stringify([f.c.id, f.pairing.endpointId]));
+      const session = f.hub.get('session', botSessionKey(f.hub.all('run').at(-1)));
       f.hub.put('session', { ...session, tools: session.tools.filter(tool => tool !== 'xiaoman_routines') });
     }
     f.hub.submit({ conversationId: f.c.id, journalItemId, content: index === 0 ? '只检查关注仓库，不检查全网热门' : '继续同一事项 ' + index, requestId: 'refresh-' + index });
@@ -478,7 +502,7 @@ test('Codex refreshes obsolete native tools while retaining the Hub conversation
   assert.equal(f.hub.all('conversation').length, 1);
   assert.deepEqual(f.hub.all('run').map(run => run.journalItemId), Array(4).fill(journalItemId));
   assert.equal(f.hub.all('run').every(run => run.status === 'completed'), true);
-  assert.equal(f.hub.get('session', JSON.stringify([f.c.id, f.pairing.endpointId])).nativeSessionId, 'refreshed-native');
+  assert.equal(f.hub.get('session', botSessionKey(f.hub.all('run').at(-1))).nativeSessionId, 'refreshed-native');
 });
 
 test('companion resumes same session and durably replays results after a lost response without rerunning', async t => {

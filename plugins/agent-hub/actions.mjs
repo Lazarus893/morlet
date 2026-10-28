@@ -57,7 +57,7 @@ export function nativeActionPolicy(name, args, routine) {
   if (routine && !name.startsWith('xiaoman_')) {
     if (!['web_search', 'web_fetch'].includes(name) || routine.scope?.publicWeb === false) return 'blocked';
   }
-  if (['xiaoman_tasks', 'xiaoman_reminders', 'xiaoman_report', 'xiaoman_status', 'xiaoman_journal', 'xiaoman_first_task', 'xiaoman_sources', 'xiaoman_routines'].includes(name)) return 'managed';
+  if (['xiaoman_tasks', 'xiaoman_reminders', 'xiaoman_report', 'xiaoman_status', 'xiaoman_journal', 'xiaoman_first_task', 'xiaoman_sources', 'xiaoman_routines', 'xiaoman_bots'].includes(name)) return 'managed';
   if (name === 'web_search') return validPublicSearch(args) ? 'read' : 'blocked';
   if (name === 'web_fetch') return validPublicFetch(args) ? 'read' : 'blocked';
   if (['read_file', 'list_directory', 'search_files', 'grep', 'glob', 'read', 'Read', 'Glob', 'Grep'].includes(name)) return 'read';
@@ -94,6 +94,6 @@ export function assertRoutineToolAccess(run, name, args) {
   if (!run?.routine) return;
   const readOnly = ['xiaoman_sources', 'xiaoman_status', 'xiaoman_report'].includes(name)
     || name === 'xiaoman_journal' && (args?.operation === 'list' || args?.operation === 'get' && args.itemId === run.journalItemId)
-    || name === 'xiaoman_routines' && (['list', 'result'].includes(args?.operation) || args?.operation === 'get' && args.id === run.routine.id);
+    || name === 'xiaoman_routines' && (['list', 'verify', 'result'].includes(args?.operation) || args?.operation === 'get' && args.id === run.routine.id);
   if (!readOnly) throw fail('FORBIDDEN');
 }

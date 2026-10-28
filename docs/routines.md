@@ -73,3 +73,9 @@ Web 服务启动后每 25 秒检查到期日程。服务需要保持运行，浏
 ## 验证
 
 调度与结果核验见 `tests/routines.test.mjs`；范围、撤权和生命周期见 `tests/routine_scope.test.mjs`；节点提醒见 `tests/routine_notices.test.mjs`；建议接受、忽略和幂等恢复见 `tests/followup_suggestions.test.mjs`。HTTP/桥接及旧产物保留见 `tests/journal_http.test.mjs`，只读权限见 `tests/chief_sla.test.mjs`，界面状态见 `tests/routines_ui.test.mjs`。回归使用隔离状态，不发送真实消息；真实迁移资料、模型执行记录及截图只保存在实例 `.runtime/`。
+
+## 读取核验与恢复
+
+执行端提交 checked 结果前，先送达当前轮真实读取回执，再执行 verify 预检。返回 accepted:false 时列出 failed/incomplete/unverified 来源，允许在同一任务补读；无法补齐须提交 blocked，不得推断无变化。原生 DSH 回执来自工具日志，模型自述不能覆盖。最终提交仍会在结束时复核来源与当前授权。
+
+失败篇首明确显示失败，展开可见读取缺口；未通过核验的模型成功自述不显示为结果，原始提交仍留在执行审计。旧有效产物保留原时间。公开站点403、动态空正文等限制不会因重试自动变成成功。

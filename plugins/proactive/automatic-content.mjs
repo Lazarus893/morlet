@@ -196,7 +196,7 @@ export function createAutomaticContent({ hub, journal }) {
         if (!item) {
           store.apply(state, { operation: 'add', revision: state.revision, values: {
             title: `${day} · ${names[entry.source]}整理`, kind: 'experience', taskType: 'collection',
-            note: '小满自动整理的来源材料。观点与建议供参考，未核实之处会明确标注；不会自动变成你的待办。',
+            note: 'Morlet自动整理的来源材料。观点与建议供参考，未核实之处会明确标注；不会自动变成你的待办。',
             taskData: { collection: { entries: [] } },
             source: { kind: 'automatic', channel: 'background', text: `已授权的${names[entry.source]}自动整理`, at: new Date(hub.now()).toISOString() },
           } }, { timeZone: timezone });

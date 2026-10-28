@@ -94,3 +94,32 @@ html[data-motion=off] .connections-center button:active:not(:disabled), html[dat
 .c-routine-usage a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
 .c-routine-usage li { display: flex; justify-content: space-between; gap: 12px; }
 .c-routine-usage li span { color: var(--muted); white-space: nowrap; }
+
+/* Connection rows use the same paper, rhythm and clear state as the notebook. */
+.c-grid{border-top:1px solid var(--line)}
+.c-card{padding:16px 0}
+.c-card-summary{grid-template-columns:24px minmax(0,1fr) auto auto;gap:12px;min-height:48px}
+.c-card h3{font-size:15px;font-weight:550}
+.c-card-summary>svg{width:22px;height:22px;color:#48634c;stroke-width:1.6}
+.c-card-summary>button,.c-card-actions button{min-height:36px;font-size:13px}
+.c-card-summary>button{padding:6px 12px}
+.c-account{font-size:12px;line-height:1.5;margin-top:3px}
+.c-state{font-size:12px;gap:6px}
+.c-state::before{width:5px;height:5px}
+.c-message{font-size:13px;line-height:1.65;margin-top:6px;color:var(--warning)}
+.c-permissions>summary{top:18px;min-height:44px;font-size:13px;gap:8px}
+.c-permissions>summary::after{content:'';width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg);transition:transform 160ms}
+.c-permissions[open]>summary::after{content:'';transform:rotate(225deg)}
+.c-management{margin-top:12px;padding-top:14px}
+.c-management ul{margin-top:10px}
+.c-card-actions{gap:8px 14px;margin-top:12px}
+.c-help summary,.c-events summary{font-size:13px;min-height:36px}
+.c-help summary::before,.c-events summary::before{content:'';width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);margin-right:3px;transition:transform 160ms}
+.c-help[open]>summary::before,.c-events[open]>summary::before{content:'';transform:rotate(45deg)}
+.c-dialog-head h2{font-family:var(--serif);font-size:26px;font-weight:600}
+.c-scope-callout{background:var(--page-subtle);border:1px solid var(--line);border-radius:8px}
+@media(max-width:700px){.c-card-summary{grid-template-columns:24px minmax(0,1fr) auto}.c-account,.c-message,.c-state{font-size:14px}}
+@media(prefers-reduced-motion:reduce){.c-permissions>summary::after,.c-help summary::before,.c-events summary::before{transition:none}}
+html[data-motion=off] .c-permissions>summary::after,html[data-motion=off] .c-help summary::before,html[data-motion=off] .c-events summary::before,html[data-motion=reduced] .c-permissions>summary::after,html[data-motion=reduced] .c-help summary::before,html[data-motion=reduced] .c-events summary::before{transition:none}
+
+@media(min-width:901px){.c-permissions>summary{top:10px}}

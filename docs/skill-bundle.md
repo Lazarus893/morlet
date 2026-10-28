@@ -1,9 +1,11 @@
-# 用现有本地 Agent 安装小满
+# 用现有本地 Agent 安装 Morlet
 
 分发物 `xiaoman-skills.zip` 包含两个可发现的 skill：
 
 - `xiaoman-setup`：预检、安装、配置本机职责、启动、失败留证和继续安装，并提供生活与工作各两个入门场景。
 - `xiaoman-journal-design`：任务理解、20 类组件契约、看板组合、状态与动效资源。
+
+Morlet 是当前产品名，Mori 是默认总管 Bot。已有安装包文件名、skill 目录和 `xiaoman_*` 工具 ID 保持不变。下载的 Release 只包含该版本打包时的功能；当前仓库源码可能更新，推送源码不会自动更新旧安装包。
 
 用户自己选择技能目录和独立安装目录。技能包不复制 Agent 登录凭据、不覆盖全局 `AGENTS.md`、模型或沙箱设置，不要求额外模型 key 或 iMessage 账户。当前适配范围为 macOS 的 Codex 和 WorkBuddy CLI；其他 Agent 与其他操作系统尚未验收。DSH 是包内锁定版本的微信通道宿主，日常模型请求交给用户既有 CLI。
 
@@ -42,7 +44,7 @@ python3 scripts/package_skills.py --output dist/xiaoman-skills.zip
 python3 /chosen/skills/xiaoman-setup/scripts/xiaoman_setup.py check --provider codex
 
 python3 /chosen/skills/xiaoman-setup/scripts/xiaoman_setup.py install \
-  --target /chosen/apps/xiaoman --provider codex --port 3383
+  --target /chosen/apps/morlet --provider codex --port 3383
 ```
 
 `--agent-command` 可指定一个已有 CLI 的可执行文件路径，路径包含空格时需正常 shell 引号；不接受在该字段拼接命令参数。WorkBuddy 使用 `--provider workbuddy`，按 PATH 中的 `codebuddy`、`cbc` 或已适配的应用内 CLI 查找。
@@ -61,7 +63,7 @@ python3 /chosen/skills/xiaoman-setup/scripts/xiaoman_setup.py install \
 
 常驻服务使用按实例绝对路径计算的独立 `com.xiaoman.web-<hash>` 标签，登录后启动、异常退出后恢复，15 秒限速避免崩溃忙循环；这是用户服务，Mac 关机或用户尚未登录时不运行。关闭终端或 Agent 窗口不会主动停止它。服务只带必要的路径与实例端口环境，不复制模型 key、令牌或全局设置；plist 和日志均为本人私有文件。
 
-新 `install`、`continue` 默认安装该常驻服务；`--no-start` 不注册、不启动服务。已有旧式独立实例可以运行 `service-install` 升级，保留配置和账本。已有实例的 `start` 会按其模式继续：有 LaunchAgent 时恢复该精确用户服务，没有时保留原独立进程行为；推荐旧实例完成一次常驻升级。其他实例、现有小满生产服务及用户原 Agent 会话均不停止。
+新 `install`、`continue` 默认安装该常驻服务；`--no-start` 不注册、不启动服务。已有旧式独立实例可以运行 `service-install` 升级，保留配置和账本。已有实例的 `start` 会按其模式继续：有 LaunchAgent 时恢复该精确用户服务，没有时保留原独立进程行为；推荐旧实例完成一次常驻升级。其他实例、现有 Morlet 生产服务及用户原 Agent 会话均不停止。
 
 同一浏览器同时打开多个本地实例时，页面会话 Cookie 按服务端口区分，切换页面不会覆盖另一实例的会话；各自的页面会话和 CSRF 校验继续独立生效。
 
@@ -70,11 +72,11 @@ python3 /chosen/skills/xiaoman-setup/scripts/xiaoman_setup.py install \
 ## 中断后继续
 
 ```sh
-python3 /chosen/skills/xiaoman-setup/scripts/xiaoman_setup.py status --target /chosen/apps/xiaoman
-python3 /chosen/skills/xiaoman-setup/scripts/xiaoman_setup.py continue --target /chosen/apps/xiaoman
-python3 /chosen/skills/xiaoman-setup/scripts/xiaoman_setup.py stop --target /chosen/apps/xiaoman
-python3 /chosen/skills/xiaoman-setup/scripts/xiaoman_setup.py start --target /chosen/apps/xiaoman
-python3 /chosen/skills/xiaoman-setup/scripts/xiaoman_setup.py service-install --target /chosen/apps/xiaoman
+python3 /chosen/skills/xiaoman-setup/scripts/xiaoman_setup.py status --target /chosen/apps/morlet
+python3 /chosen/skills/xiaoman-setup/scripts/xiaoman_setup.py continue --target /chosen/apps/morlet
+python3 /chosen/skills/xiaoman-setup/scripts/xiaoman_setup.py stop --target /chosen/apps/morlet
+python3 /chosen/skills/xiaoman-setup/scripts/xiaoman_setup.py start --target /chosen/apps/morlet
+python3 /chosen/skills/xiaoman-setup/scripts/xiaoman_setup.py service-install --target /chosen/apps/morlet
 ```
 
 安装进程锁防止同一实例并发继续；失败步骤下次重试，已完成步骤跳过。私有 `.runtime/logs/setup/` 留存命令输出；返回结构只给失败步骤和证据路径，不把凭据或全部日志贴到聊天里。状态是 `running` 的安装步骤也会在继续时重做，以适应中途被关闭的安装进程。
@@ -83,7 +85,7 @@ python3 /chosen/skills/xiaoman-setup/scripts/xiaoman_setup.py service-install --
 
 常驻升级失败时会恢复原服务定义及升级前实际运行／暂停意图，失败证据仍保留；原本暂停的宿主不会在回滚时启动。Web 不可达时，停止流程只临时启动禁止自动执行的控制页面，交由 Node 以本实例私有宿主记录完成核验和停止；控制 socket 尚未出现不能被当成宿主已退出。
 
-运行期的微信会话、首件事草稿、已确认手账与设计状态由小满的正式持久层恢复，安装器不复制或重新发送这些请求。启动失败不重新初始化用户数据。
+运行期的微信会话、首件事草稿、已确认手账与设计状态由 Morlet 的正式持久层恢复，安装器不复制或重新发送这些请求。启动失败不重新初始化用户数据。
 
 Web 意外退出时，微信宿主可能仍在运行。`start` 会先恢复管理 Web，再通过此实例私有控制 socket 识别既有宿主；不会把它占用的宿主端口误当成其他服务而卡住恢复。只有本实例宿主明确离线、需要新启动时才要求宿主端口空闲。
 

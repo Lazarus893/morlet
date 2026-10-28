@@ -19,6 +19,13 @@ const routine = {
 };
 const render = (values = {}, draft = {}, zone = 'Asia/Shanghai', schedulerError) => parseHTML(`<html><body>${ui.render({ ...routine, ...values }, 'item-fixture', draft, zone, schedulerError)}</body></html>`).document;
 
+test('failed verification never presents the model success claim as a result', () => {
+  const doc = render({ lastStatus: 'failed', error: 'ROUTINE_SOURCE_INCOMPLETE', lastSummary: '所有网页完整读取，已核实。', lastRun: { gaps: [{ source: 'https://example.org/partial', status: 'incomplete' }] } });
+  assert.doesNotMatch(doc.body.textContent, /所有网页完整读取/);
+  assert.match(doc.body.textContent, /未通过读取核验/); assert.match(doc.body.textContent, /example.org\/partial/);
+  assert.ok(doc.querySelector('[data-j-action="routine-run_now"]'));
+});
+
 test('changing the deadline does not silently reauthorise the channel or source binding', () => {
   const current = { ...routine, notification: { channelId: 'channel-1' }, scope: { publicWeb: false, sources: [{ operation: 'github_updates', filter: { repo: 'example/project' } }] } };
   const update = ui.settingsValues(current, { routineSettings: { endsAt: '' } });
@@ -106,7 +113,7 @@ test('failed, uncertain and approval states are visible with recovery, and uncer
     const doc = render({ lastStatus: status, error: 'AGENT_TIMEOUT' });
     const state = doc.querySelector('.journal-routine-problem');
     assert.equal(state.closest('details'), null);
-    assert.ok(state.querySelector('[data-j-action="routine-edit"]'));
+    assert.ok(state.querySelector(`[data-j-action="routine-${status === 'failed' ? 'recover' : 'edit'}"]`));
     assert.doesNotMatch(state.textContent, /无新发现/);
     assert.equal(doc.querySelector('[data-j-action="routine-run_now"]').disabled, status !== 'failed');
     assert.ok(ui.directoryLabel({ ...routine, lastStatus: status }));
@@ -153,8 +160,8 @@ test('long failure reports leave a short visible error and retain their complete
   assert.match(details.querySelector('summary').textContent, /检查尚未完成/);
   assert.ok(details.querySelector('summary').textContent.length < 40);
   assert.doesNotMatch(details.querySelector('summary').textContent, /https|example|详情与/);
-  assert.equal(details.querySelector('p').textContent, summary, 'the detailed report must not be truncated');
-  assert.ok(doc.querySelector('.journal-routine-status > [data-j-action="routine-edit"]'), 'execution recovery remains outside the collapsed report');
+  assert.equal(details.querySelector('p').textContent, '执行端说明：' + summary, 'the detailed report must not be truncated');
+  assert.ok(doc.querySelector('.journal-routine-status > [data-j-action="routine-recover"]'), 'execution recovery remains outside the collapsed report');
   const unknown = render({ lastStatus: 'failed', error: 'UNMAPPED_FAILURE', lastSummary: '<img src=x onerror="bad()">\n' + summary });
   assert.match(unknown.querySelector('.journal-routine-result-details > summary').textContent, /这次巡查未完成/);
   assert.equal(unknown.querySelector('img'), null);

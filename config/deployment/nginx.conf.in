@@ -9,8 +9,16 @@ http {
     server_tokens off;
     client_max_body_size 64k;
     server {
-        listen {{PUBLIC_PORT}};
+        listen {{PUBLIC_PORT}}{{TLS_LISTEN}};
+        {{TLS_CONFIG}}
         server_name {{PUBLIC_HOST}};
+        location = /api/attachments {
+            client_max_body_size 14m;
+            proxy_pass http://127.0.0.1:{{WEB_PORT}};
+            proxy_set_header Host $http_host;
+            proxy_set_header Connection "";
+            proxy_read_timeout 60s;
+        }
         location / {
             proxy_pass http://127.0.0.1:{{WEB_PORT}};
             proxy_http_version 1.1;

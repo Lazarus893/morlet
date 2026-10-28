@@ -10,8 +10,8 @@
   const motion = window.PAMotion;
   let listeners, root, request, navigate, snapshot, scopes = [], tasks = [], tab = 'recent', search = '', pending = false, editing = null, editor, lastOpener, refreshTimer, selectionToken = 0, alive = false, remindersInitialized = false;
   const cards = new Map();
-  let automaticContent = null, automaticDirty = false;
-  let creatingConversation = false;
+  let automaticContent = null, automaticDirty = false, category = 'all', sorting = null, deferredUpdate = null, readingIntent = 0;
+  let creatingConversation = false, journalDraftItem = null;
   let guideOnly = false, hub, runtime, localAgentAvailable, readingConversation = '', readingItem = '', conversationRoot, remoteReader, remoteState;
   const conversationPages = new Map(), chapterViews = new Map();
   const routineFor = item => snapshot?.routines?.find(routine => routine.journalItemId === item?.id);
@@ -25,7 +25,7 @@
   function extraItems() {
     if (guideOnly || snapshot?.scope.account !== 'local' || snapshot?.scope.userId !== 'owner') return [];
     const linked = new Set((snapshot?.items || []).map(conversationIdFor).filter(Boolean));
-    return [...(hub?.conversations || []).filter(c => !linked.has(c.id)).map(conversationItem), ...(remoteState?.configured ? [{ id: 'remote-conversations', title: '远程会话', status: 'active', source: { kind: 'remote' } }] : [])];
+    return [...(journalDraftItem ? [journalDraftItem] : []), ...(hub?.conversations || []).filter(c => !c.roomKey && !linked.has(c.id)).map(conversationItem), ...(remoteState?.configured ? [{ id: 'remote-conversations', title: '远程会话', status: 'active', source: { kind: 'remote' } }] : [])];
   }
   function closeConversation() {
     if (conversationRoot?.closest('.journal-workpage')) delete conversationRoot.closest('.journal-workpage').dataset.reading;
@@ -33,6 +33,7 @@
   }
   async function revealSavedItem(itemId) {
     if (!alive) return;
+    journalDraftItem = null;
     const token = selectionToken;
     tab = 'recent'; search = ''; root.querySelector('#journal-search').value = '';
     notebookSelection[tab] = itemId; chapterViews.set(itemId, 'conversation');
@@ -68,27 +69,34 @@
     conversationRoot.setAttribute('aria-labelledby', `chapter-tab-${item.id}-conversation`);
     conversationRoot.innerHTML = '<div class="journal-chat-mount"></div>';
     (page.querySelector('.jui-workcard') || page).append(conversationRoot);
-    window.PAChat.mount({ root: conversationRoot.querySelector('.journal-chat-mount'), api: request, runtime, localAgentAvailable, conversationId: id, ...(item.source?.kind !== 'conversation' && { journalItemId: item.id }), onItemSaved: revealSavedItem });
+    window.PAChat.mount({ root: conversationRoot.querySelector('.journal-chat-mount'), api: request, runtime, localAgentAvailable, conversationId: id, journalDraft: item.journalDraft === true, ...(item.source?.kind !== 'conversation' && { journalItemId: item.id }), onItemSaved: revealSavedItem });
   }
   async function openConversation({ conversationId, itemId, ...options } = {}) {
-    await loadConversations(); if (!alive || !hub) throw new Error('暂时读不到消息，请重试。');
-    const linked = conversationId && (snapshot.items.find(item => item.id === itemId && conversationIdFor(item) === conversationId) || snapshot.items.find(item => item.source?.kind !== 'guide' && conversationIdFor(item) === conversationId) || snapshot.items.find(item => conversationIdFor(item) === conversationId));
+    const intent = readingIntent, generation = selectionToken;
+    await loadConversations();
+    if (!alive || generation !== selectionToken || intent !== readingIntent) return;
+    if (!hub) throw new Error('暂时读不到消息，请重试。');
+    const matches = conversationId ? snapshot.items.filter(item => conversationIdFor(item) === conversationId) : [];
+    const linked = itemId ? matches.find(item => item.id === itemId) : matches.length === 1 ? matches[0] : null;
+    if (itemId && !linked) throw new Error('这篇手账的对话暂时读不到，请刷新重试。');
     if (linked) { chapterViews.set(linked.id, 'conversation'); await openItem(linked.id); mountConversation(linked); }
     else if (conversationId) {
       const conversation = hub.conversations.find(c => c.id === conversationId);
       if (!conversation) throw new Error('原对话当前不可用，已有手账仍保留。');
+      if (conversation.roomKey) { await navigate({ page: 'chat', botId: conversation.roomKind === 'group' ? 'group' : conversation.botId, conversationId }); return; }
       chapterViews.set('conversation-' + conversationId, 'conversation');
       tab = 'recent'; search = ''; root.querySelector('#journal-search').value = ''; notebookSelection[tab] = 'conversation-' + conversationId; patchChrome(); patchBoard();
       mountConversation(conversationItem(conversation));
     } else {
-      const item = { id: 'conversation-new', title: '新的一页', status: 'active', source: { kind: 'conversation' } };
+      const item = { id: 'conversation-new', title: '新的一页', status: 'active', source: { kind: 'conversation' }, journalDraft: true };
       closeConversation(); creatingConversation = true;
+      conversationPages.get(item.id)?.remove(); conversationPages.delete(item.id); journalDraftItem = item;
       const page = document.createElement('section'); page.className = 'journal-workpage journal-message-page'; page.dataset.item = item.id; page.innerHTML = '<h2 class="journal-chapter-title">新的一页</h2>';
       root.querySelector('#journal-board').append(page); conversationPages.set(item.id, page);
       for (const child of root.querySelector('#journal-board').children) child.hidden = child !== page;
       conversationRoot = document.createElement('div'); page.append(conversationRoot);
-      window.PAChat.mount({ root: conversationRoot, api: request, runtime, localAgentAvailable, onItemSaved: revealSavedItem, onConversation: c => { creatingConversation = false; if (!hub.conversations.some(value => value.id === c.id)) hub.conversations.push(c); notebookSelection[tab] = 'conversation-' + c.id; readingConversation = c.id; readingItem = 'conversation-' + c.id; page.dataset.item = readingItem; conversationPages.delete(item.id); conversationPages.set(readingItem, page); patchBoard(); } });
-      try { await window.PAChat.open({ ...options, newConversation: true }); } catch (error) { creatingConversation = false; closeConversation(); page.remove(); conversationPages.delete(item.id); patchBoard(); throw error; }
+      window.PAChat.mount({ root: conversationRoot, api: request, runtime, localAgentAvailable, journalDraft: true, onItemSaved: revealSavedItem, onConversation: c => { creatingConversation = false; if (!hub.conversations.some(value => value.id === c.id)) hub.conversations.push(c); journalDraftItem = { ...item, conversationId: c.id }; tab = 'recent'; search = ''; root.querySelector('#journal-search').value = ''; notebookSelection[tab] = item.id; chapterViews.set(item.id, 'conversation'); readingConversation = c.id; readingItem = item.id; patchChrome(); patchBoard(); } });
+      try { await window.PAChat.open({ ...options, newConversation: true }); } catch (error) { creatingConversation = false; journalDraftItem = null; closeConversation(); page.remove(); conversationPages.delete(item.id); patchBoard(); throw error; }
     }
     // A newly mounted composer stays disabled until its first refresh finishes.
     if (conversationId) { await window.PAChat.open(); if (readingConversation !== conversationId) return; }
@@ -113,6 +121,7 @@
   function chapterView(item) { return chapterViews.get(item.id) || (item.source?.kind === 'conversation' ? 'conversation' : 'output'); }
   async function switchChapter(item, view) {
     if (!alive || !['output', 'conversation'].includes(view) || chapterView(item) === view) return;
+    readingIntent++;
     if (view === 'conversation' && !conversationIdFor(item)) {
       await followItem(item.id);
       return;
@@ -134,7 +143,7 @@
     const learned = p.entries.filter(entry => entry.learning?.version === p.learning?.version && (entry.learning?.signals > 0 || entry.learning?.guidanceApplied)).length;
     const learningStatus = p.learning?.explicitSignals ? `${p.learning.explicitSignals} 条反馈${learned ? ` · ${learned} 条内容已应用偏好` : ''}` : '';
     const discovered = p.topics.filter(topic => topic.origin === 'discovered' && !topic.muted).map(topic => `${esc(topic.name)}（${topic.explicitSignals && topic.score > 0 ? '继续关注' : '少量探索'}）`).join('、');
-    panel.querySelector('.journal-settings-body').innerHTML = `<label><input id="journal-content-enabled" type="checkbox" ${p.enabled ? 'checked' : ''}>自动收集资料</label><label><input id="journal-content-discovery" type="checkbox" ${p.discovery ? 'checked' : ''}>探索新话题</label><fieldset><legend>来源</legend>${[['google-mail', '邮件'], ['github', 'GitHub'], ['x', 'X']].map(([id, label]) => `<label><input type="checkbox" data-content-source="${id}" ${p.sources.includes(id) ? 'checked' : ''}>${label}</label>`).join('')}</fieldset><label for="journal-content-topics">关注话题（每行一个）<textarea id="journal-content-topics" rows="5" maxlength="2020">${esc(p.configuredTopics.join('\n'))}</textarea></label><label for="journal-content-guidance">希望小满怎么说<textarea id="journal-content-guidance" rows="3" maxlength="500" placeholder="例如：轻松一点，先给一句有意思的发现">${esc(p.readingGuidance || '')}</textarea></label><label for="journal-content-limit">每天最多留下<input id="journal-content-limit" type="number" min="1" max="40" value="${p.maxDaily}">条内容</label>${learningStatus ? `<p class="note" data-learning-status>${esc(learningStatus)}</p>` : ''}${p.topics.some(t => t.signals) ? `<p class="note">根据反馈调整：${p.topics.filter(t => t.signals).map(t => `${esc(t.name)}（${t.muted ? '已暂停' : t.score > 0 ? '更关注' : t.score < 0 ? '减少' : '保持'}）`).join('、')}</p>` : ''}${discovered ? `<p class="note">发现的新话题：${discovered}</p>` : ''}<button class="outline" data-j-action="content-settings-save">保存</button>`;
+    panel.querySelector('.journal-settings-body').innerHTML = `<label><input id="journal-content-enabled" type="checkbox" ${p.enabled ? 'checked' : ''}>自动收集资料</label><label><input id="journal-content-discovery" type="checkbox" ${p.discovery ? 'checked' : ''}>探索新话题</label><fieldset><legend>来源</legend>${[['google-mail', '邮件'], ['github', 'GitHub'], ['x', 'X']].map(([id, label]) => `<label><input type="checkbox" data-content-source="${id}" ${p.sources.includes(id) ? 'checked' : ''}>${label}</label>`).join('')}</fieldset><label for="journal-content-topics">关注话题（每行一个）<textarea id="journal-content-topics" rows="5" maxlength="2020">${esc(p.configuredTopics.join('\n'))}</textarea></label><label for="journal-content-guidance">希望 Mori 怎么说<textarea id="journal-content-guidance" rows="3" maxlength="500" placeholder="例如：轻松一点，先给一句有意思的发现">${esc(p.readingGuidance || '')}</textarea></label><label for="journal-content-limit">每天最多留下<input id="journal-content-limit" type="number" min="1" max="40" value="${p.maxDaily}">条内容</label>${learningStatus ? `<p class="note" data-learning-status>${esc(learningStatus)}</p>` : ''}${p.topics.some(t => t.signals) ? `<p class="note">根据反馈调整：${p.topics.filter(t => t.signals).map(t => `${esc(t.name)}（${t.muted ? '已暂停' : t.score > 0 ? '更关注' : t.score < 0 ? '减少' : '保持'}）`).join('、')}</p>` : ''}${discovered ? `<p class="note">发现的新话题：${discovered}</p>` : ''}<button class="outline" data-j-action="content-settings-save">保存</button>`;
   }
   async function loadAutomatic() {
     const generation = selectionToken;
@@ -201,7 +210,7 @@
   function currentItem(id) { const item = snapshot?.items?.find(item => item.id === id) || extraItems().find(item => item.id === id); return item?.displayTitle ? { ...item, title: item.displayTitle } : item; }
   function preferences() { return { autoLayout: true, motion: 'system', hidden: [], pinned: [], order: [], ...(snapshot?.preferences || {}) }; }
   function hasWidgetDraft(draft) { return !!draft?.selectionDirty || !!draft?.failed || Object.values(draft?.fields || {}).some(fields => Object.keys(fields).length); }
-  function isEditing() { return !!editing?.dirty || [...widgetDrafts.values()].some(hasWidgetDraft); }
+  function isEditing() { return !!sorting || !!editing?.dirty || [...widgetDrafts.values()].some(hasWidgetDraft); }
   function ensureWidgetDraft(widget) {
     let draft = widgetDrafts.get(widget.id);
     if (!draft) {
@@ -262,12 +271,12 @@
   let lastMutationError;
   function visibleWidgets() {
     if (guideOnly && !snapshot?.guide) return [];
-    const items = snapshot?.items || [], p = preferences(), widgets = tab === 'recent' ? [...(snapshot?.layout?.widgets || [])] : items.flatMap(item => {
-      if (item.source?.kind === 'guide' && item.guideProjections?.length) return item.guideProjections.map(projection => ({ id: `list-${item.id}-${projection.kind}`, itemId: item.id, kind: projection.kind, projection }));
-      const current = (snapshot?.layout?.widgets || []).find(w => w.itemId === item.id && w.emphasis === 'primary') || (snapshot?.layout?.widgets || []).find(w => w.itemId === item.id);
-      const projection = item.primaryProjection || current?.projection;
-      return { id: `list-${item.id}`, itemId: item.id, kind: projection?.kind || (done(item) ? 'memory' : item.taskType !== 'auto' && item.taskType ? item.taskType : 'agenda'), ...(projection ? { projection } : {}) };
-    });
+    const items = snapshot?.items || [], p = preferences(), widgets = [...(snapshot?.layout?.widgets || [])];
+    if (tab !== 'recent') for (const item of items) {
+      if (widgets.some(widget => widget.itemId === item.id) || indexAPI.isGuide(item, snapshot.guide)) continue;
+      const projection = item.primaryProjection;
+      widgets.push({ id: `list-${item.id}`, itemId: item.id, kind: projection?.kind || (done(item) ? 'memory' : item.taskType !== 'auto' && item.taskType ? item.taskType : 'agenda'), ...(projection ? { projection } : {}) });
+    }
     if (tab === 'recent') for (const routine of snapshot?.routines || []) {
       const item = items.find(value => value.id === routine.journalItemId), projection = item?.primaryProjection;
       if (projection && !widgets.some(widget => widget.itemId === item.id)) widgets.push({ id: `${item.id}:${projection.kind}`, itemId: item.id, kind: projection.kind, projection });
@@ -285,7 +294,7 @@
       if (!widgets.some(widget => widget.itemId === item.id) && item.primaryProjection) widgets.push({ id: `edition-${item.id}`, itemId: item.id, kind: item.primaryProjection.kind, projection: item.primaryProjection });
     }
     const filtered = widgets.filter(widget => {
-      const item = currentItem(widget.itemId); if (!item || p.hidden.includes(widget.id) || item.source?.kind === 'guide' && !snapshot.guide || guideOnly && item.source?.kind !== 'guide') return false;
+      const item = currentItem(widget.itemId); if (!item || p.hidden.includes(widget.id) || indexAPI.isGuide(item, snapshot.guide) || category !== 'all' && indexAPI.category(item, snapshot.routines) !== category) return false;
       if (tab === 'recent' && done(item) && !widget.uiRetained && item.id !== requestedEdition?.id && !(search && indexAPI.seriesId(item))) return false;
       if (tab === 'kept' && !done(item) && !['experience', 'wish'].includes(item.kind)) return false;
       if (!search) return true;
@@ -299,9 +308,9 @@
   function basicContent(widget, item, embedded = false) {
     if (widgetAPI) {
       const kind = widget.projection?.kind || widget.kind, draft = widgetDrafts.get(widget.id), failure = widgetFailures.get(widget.id);
-      const sourceNames = { weixin: '微信交代', imessage: 'iMessage 交代', web: '网页录入', webui: '网页录入', local: '手动录入', background: '小满自动整理' };
+      const sourceNames = { weixin: '微信交代', imessage: 'iMessage 交代', web: '网页录入', webui: '网页录入', local: '手动录入', background: 'Mori 自动整理' };
       const draftNotice = hasWidgetDraft(draft) ? `<div class="journal-widget-draft">${widget.uiRetained ? '<p>看板待更新：先保存或放弃这份输入，再呈现新的排版。</p>' : ''}<button class="text" data-j-action="widget-discard" data-widget="${esc(widget.id)}">放弃这份未保存的输入</button></div>` : '';
-      const body = `${embedded ? '' : `<div class="journal-widget-top"><small>${esc(widgetNames[kind] || '生活事项')}</small><span class="tag">${esc(statusNames[item.status] || item.status)}</span></div>`}${widgetAPI.render(widget, item, { ...widgetViews.get(widget.id), automaticEntries: automaticEntries(item) }, { embedded })}${draftNotice}${failure ? `<div class="journal-widget-error" role="alert"><p>${esc(failure.message)}</p>${failure.conflict ? `<button class="outline" data-j-action="widget-review" data-widget="${esc(widget.id)}">核对最新记录，保留草稿</button>` : `<button class="outline" data-j-action="widget-retry" data-widget="${esc(widget.id)}">重试保存</button>`}</div>` : ''}${draft?.conflict && !failure ? '<p class="note">这份草稿基于旧版本，请先核对最新记录。</p>' : ''}`;
+      const body = `${embedded ? '' : `<div class="journal-widget-top"><small>${esc(widgetNames[kind] || '生活事项')}</small><span class="tag">${esc(statusNames[item.status] || item.status)}</span></div>`}${widgetAPI.render(widget, item, { ...widgetViews.get(widget.id), automaticEntries: automaticEntries(item) }, { embedded, dashboard: true })}${draftNotice}${failure ? `<div class="journal-widget-error" role="alert"><p>${esc(failure.message)}</p>${failure.conflict ? `<button class="outline" data-j-action="widget-review" data-widget="${esc(widget.id)}">核对最新记录，保留草稿</button>` : `<button class="outline" data-j-action="widget-retry" data-widget="${esc(widget.id)}">重试保存</button>`}</div>` : ''}${draft?.conflict && !failure ? '<p class="note">这份草稿基于旧版本，请先核对最新记录。</p>' : ''}`;
       if (embedded) return body;
       return `${body}<details class="journal-source"><summary>来源与记录</summary><p>${esc(sourceNames[item.source?.channel] || '生活记录')} · ${esc(readableDate(item.source?.at || item.createdAt))}</p><blockquote>${esc(item.source?.text || item.title)}</blockquote><p>更新于 ${esc(readableDate(item.updatedAt))}</p>${widget.reason ? `<p>整理依据：${esc(widget.reason)}</p>` : ''}</details><div class="actions"><button class="outline" data-j-action="edit" data-item="${esc(item.id)}">校对这件事</button>${!done(item) ? `<button class="text" data-j-action="done" data-item="${esc(item.id)}">确认结束</button>` : `<button class="text" data-j-action="undo" data-item="${esc(item.id)}">重新打开</button>`}</div>`;
     }
@@ -327,12 +336,8 @@
     content += `<details class="journal-source"><summary>来源与记录时间</summary><p>${item.source?.channel === 'weixin' ? '微信交代' : '本机录入'} · ${esc(readableDate(item.source?.at || item.createdAt))}</p><blockquote>${esc(item.source?.text || item.title)}</blockquote><p>当前事项版本 ${esc(item.version)} · 更新于 ${esc(readableDate(item.updatedAt))}</p>${widget.reason ? `<p>展示原因：${esc(widget.reason)}</p>` : ''}</details><div class="actions"><button class="outline" data-j-action="edit" data-item="${esc(item.id)}">查看与校对</button>${auxiliary ? '' : !done(item) ? `<button class="text" data-j-action="done" data-item="${esc(item.id)}">确认结束</button>` : `<button class="text" data-j-action="undo" data-item="${esc(item.id)}">重新打开</button>`}</div>`;
     return content;
   }
-  function controls(widget, index, count) {
-    if (tab !== 'recent' || widget.uiRetained || currentItem(widget.itemId)?.source?.kind === 'guide') return '';
-    const p = preferences(), visible = visibleWidgets().filter(w => !w.uiRetained), pinned = p.pinned.includes(widget.id), crosses = offset => visible[index + offset] && p.pinned.includes(visible[index + offset].id) !== pinned;
-    index = visible.findIndex(w => w.id === widget.id); count = visible.length;
-    return `<details class="journal-adjust" data-w-detail="layout-${esc(widget.id)}"><summary>${esc(widgetNames[widget.projection?.kind || widget.kind] || '组件')}版式${p.pinned.includes(widget.id) ? ' · 已固定' : ''}</summary><div class="journal-widget-controls"><button data-j-action="pin" data-widget="${esc(widget.id)}" aria-pressed="${p.pinned.includes(widget.id)}">${p.pinned.includes(widget.id) ? '已固定' : '固定'}</button><button data-j-action="up" data-widget="${esc(widget.id)}" ${index === 0 || crosses(-1) ? 'disabled' : ''}>上移</button><button data-j-action="down" data-widget="${esc(widget.id)}" ${index === count - 1 || crosses(1) ? 'disabled' : ''}>下移</button><button data-j-action="hide" data-widget="${esc(widget.id)}">隐藏</button></div></details>`;
-  }
+  function controls() { return ''; }
+
   function nodeKey(node) {
     if (node.nodeType !== 1) return null;
     const data = node.dataset;
@@ -379,7 +384,7 @@
     for (const item of snapshot?.items || []) {
       const draft = workDrafts.get(item.id), views = {};
       for (const widget of snapshot.layout?.widgets || []) if (widget.itemId === item.id && widgetViews.has(widget.id)) views[widget.id] = widgetViews.get(widget.id);
-      if (draft || Object.keys(views).length || chapterViews.has(item.id)) values[item.id] = { chapterView: chapterView(item), parameters: draft?.parameters || {}, open: !!draft?.open, ...(typeof draft?.expanded === 'boolean' ? { expanded: draft.expanded } : {}), sourceOpen: !!draft?.sourceOpen, ...(draft?.submission ? { submission: draft.submission } : {}), ...(draft?.routineSubmission ? { routineSubmission: draft.routineSubmission } : {}), ...(draft?.routineSettings ? { routineSettings: draft.routineSettings } : {}), ...(draft?.suggestionSubmission ? { suggestionSubmission: draft.suggestionSubmission } : {}), panels: draft?.panels || {}, views };
+      if (draft || Object.keys(views).length || chapterViews.has(item.id)) values[item.id] = { chapterView: chapterView(item), parameters: draft?.parameters || {}, open: !!draft?.open, ...(typeof draft?.expanded === 'boolean' ? { expanded: draft.expanded } : {}), sourceOpen: !!draft?.sourceOpen, ...(draft?.submission ? { submission: draft.submission } : {}), ...(draft?.continueRequest ? { continueRequest: draft.continueRequest } : {}), ...(draft?.routineSubmission ? { routineSubmission: draft.routineSubmission } : {}), ...(draft?.routineSettings ? { routineSettings: draft.routineSettings } : {}), ...(draft?.suggestionSubmission ? { suggestionSubmission: draft.suggestionSubmission } : {}), panels: draft?.panels || {}, views };
     }
     try {
       localStorage.setItem(workStorageKey(), JSON.stringify(values));
@@ -401,6 +406,8 @@
       const parameters = {};
       for (const key of ['servings', 'budgetTotal']) if (typeof value.parameters?.[key] === 'string' && value.parameters[key].length <= 20) parameters[key] = value.parameters[key];
       workDrafts.set(item.id, { parameters, open: value.open === true, ...(typeof value.expanded === 'boolean' ? { expanded: value.expanded } : {}), sourceOpen: value.sourceOpen === true, panels: Object.fromEntries(Object.entries(value.panels || {}).filter(([key, value]) => key.length <= 200 && typeof value === 'boolean')), restored: Object.keys(parameters).length > 0 });
+      const continuing = value.continueRequest;
+      if (continuing?.itemId === item.id && Number.isSafeInteger(continuing.itemVersion) && /^[a-f0-9]{32}$/.test(continuing.requestId || '')) workDrafts.get(item.id).continueRequest = { itemId: item.id, itemVersion: continuing.itemVersion, requestId: continuing.requestId };
       const routineRequest = value.routineSubmission, routine = routineFor(item);
       if (routine && routineRequest?.id === routine.id && ['pause', 'resume', 'run_now', 'end', 'update', 'authorize_scope'].includes(routineRequest.operation) && Number.isSafeInteger(routineRequest.version) && routineRequest.version > 0 && /^[a-zA-Z0-9:_-]{8,128}$/.test(routineRequest.requestId || '') && JSON.stringify(routineRequest).length < 16000) {
         workDrafts.get(item.id).routineSubmission = { id: routine.id, version: routineRequest.version, operation: routineRequest.operation, requestId: routineRequest.requestId, ...(routineRequest.operation === 'update' && { values: routineRequest.values }) };
@@ -471,10 +478,10 @@
     if (!widgetAPI) return widgets.map(widget => ({ id: widget.id, itemId: widget.itemId, widgets: [widget], embedded: false }));
     const customOrder = tab !== 'recent' || preferences().pinned.length || preferences().order.length, groups = [], byItem = new Map();
     for (const widget of widgets) {
-      // Explicit user ordering takes precedence over grouping. Never move a pinned card.
-      let group = customOrder ? groups.at(-1) : byItem.get(widget.itemId);
+      // A chapter owns its cards; sorting never splits it into duplicate pages.
+      let group = byItem.get(widget.itemId);
       if (!group || group.itemId !== widget.itemId) {
-        group = { id: customOrder ? `${widget.itemId}:${widget.id}` : widget.itemId, itemId: widget.itemId, widgets: [], embedded: true };
+        group = { id: widget.itemId, itemId: widget.itemId, widgets: [], embedded: true };
         groups.push(group); byItem.set(widget.itemId, group);
       }
       group.widgets.push(widget);
@@ -525,6 +532,15 @@
     const value = (number, unit) => number === null || number === undefined ? '未知' : unit === 'CNY' ? `¥${esc(Number(number).toLocaleString('zh-CN', { maximumFractionDigits: 2 }))}` : `${esc(number)}${unit ? ` ${esc(unit)}` : ''}`;
     return `<div class="journal-trial-result" id="journal-trial-result-${esc(item.id)}"><div class="journal-trial-result-title"><h3 tabindex="-1">这次调整会影响什么</h3><span>试算 · 未采用</span></div><ul class="journal-trial-changes">${(preview.changes || []).map(change => `<li data-change="${esc(change.status)}"><div><strong>${esc(change.label)}${['ingredient', 'shopping'].includes(change.kind) ? `<small>${change.kind === 'ingredient' ? '食谱所需' : '采购记录'}</small>` : ''}</strong><span>${esc(labels[change.status] || '待核实')}</span></div><p>${value(change.before, change.unit)} <span aria-label="改为">→</span> ${value(change.after, change.unit)}</p></li>`).join('')}</ul>${preview.warnings?.length ? `<ul class="journal-trial-warnings">${preview.warnings.map(warning => `<li>${esc(warning.message || warning)}</li>`).join('')}</ul>` : ''}${stale ? '<p class="journal-trial-error" role="status">记录已在别处更新。条件仍保留，请重新查看影响后再采用。</p>' : ''}<div class="actions"><button class="primary" data-j-action="work-apply" data-item="${esc(item.id)}" ${stale || !preview.canApply || draft.busy ? 'disabled' : ''}>采用这次调整</button><button class="text" data-j-action="work-reset" data-item="${esc(item.id)}" ${draft.busy ? 'disabled' : ''}>放弃试算</button></div></div>`;
   }
+  function itemActions(item) {
+    if (indexAPI.isGuide(item, snapshot.guide)) return '';
+    const ref = item.sourceRef, canLocate = ref?.conversationId && ref?.messageId;
+    const source = item.source?.text, note = item.note;
+    const icon = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M14 3h7v7M21 3l-9 9M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5"/></svg>';
+    const locate = canLocate ? `<button type="button" class="journal-source-link" data-j-action="source-message" data-item="${esc(item.id)}" aria-label="定位原文" title="定位原文">${icon}</button>` : '';
+    const sourceRecord = source || note ? `<details class="journal-origin-record"><summary>来源与备注</summary>${source ? `<blockquote>${esc(source)}</blockquote>` : ''}${note && note !== source ? `<p>${esc(note)}</p>` : ''}</details>` : '';
+    return `<div class="journal-chapter-actions">${locate}<details class="journal-chapter-menu" data-work-detail="item-menu" data-item="${esc(item.id)}"><summary aria-label="事项操作" title="事项操作"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></summary><div class="journal-chapter-menu-body"><button class="text" data-j-action="item-conversation" data-item="${esc(item.id)}">调整交代</button><button class="text" data-j-action="edit" data-item="${esc(item.id)}">编辑记录</button><button class="text" data-j-action="${done(item) ? 'undo' : 'done'}" data-item="${esc(item.id)}">${done(item) ? '重新打开' : '归档'}</button>${item.source?.kind === 'automatic' && !done(item) ? '<p>归档后停止追加，已有内容保留。</p>' : ''}${sourceRecord}</div></details></div>`;
+  }
   function workHeader(item, widgets, plan, groupId, continuation = false, chapter = 1) {
     const expanded = workExpanded(item), priority = workPriority(item), automatic = item.source?.kind === 'automatic';
     const entries = item.taskData?.collection?.entries || [];
@@ -535,31 +551,38 @@
     const editionPicker = !editions.length ? '' : editions.length === 1 ? `<time class="journal-edition-date">${esc(item.contentSeries.day)}</time>` : `<label class="journal-edition-picker"><span class="sr-only">${esc(title)}日期</span><select data-j-edition="${esc(item.id)}" aria-label="${esc(title)}日期">${editions.map((edition, i) => `<option value="${esc(edition.id)}" ${edition.id === item.id ? 'selected' : ''}>${esc(edition.contentSeries.day)}${i === 0 ? ' · 最新' : ''}</option>`).join('')}</select></label>`;
     const heading = `<div class="journal-chapter-title"${title.length > 60 ? ' data-long-title="true"' : ''}>${continuation ? '' : `<span class="journal-chapter-number" aria-hidden="true">${String(chapter).padStart(2, '0')}</span>`}<h2 id="work-title-${esc(groupId)}" tabindex="-1">${esc(title)}${continuation ? ' · 继续' : ''}</h2></div>`;
     const routine = routineFor(item);
-    if (routine) return `<div class="journal-work-heading"><div>${heading}</div></div>${routineUI.render(routine, item.id, draft, undefined, snapshot.routinesError, snapshot.routineNotices || {})}`;
+    if (routine) return `<div class="journal-work-heading"><div>${heading}</div>${itemActions(item)}</div>${routineUI.render(routine, item.id, draft, undefined, snapshot.routinesError, snapshot.routineNotices || {})}`;
     if (!expanded) {
       const custom = preferences().pinned.length || preferences().order.length;
       const reason = custom ? widgets.some(widget => preferences().pinned.includes(widget.id)) ? '已固定' : '按你的顺序' : priority.label;
       const next = priority.expiredDeadline ? '已记录的截止时间已过，完成情况仍需核对。' : priority.past ? '原定时间已过，可展开核对安排与已记录的进度。' : typeof plan.nextStep === 'string' ? plan.nextStep : plan.nextStep?.label || '展开查看已记录的材料。';
       const summary = automatic ? `<ul class="journal-overview-titles">${[...entries].reverse().slice(0, 2).map(entry => `<li>${esc(automaticEntries(item).find(value => value.entryId === entry.id)?.hook || entry.title)}</li>`).join('')}</ul>` : `<p class="journal-overview-next">${esc(next)}</p>`;
       const facts = [Number.isFinite(priority.at) && `${priority.timeLabel}${readableDate(priority.at)}`, !automatic && item.steps?.length && `${item.steps.filter(step => step.done).length}/${item.steps.length} 项已准备`, automatic && `更新于 ${readableDate(item.updatedAt)}`].filter(Boolean);
-      return `<div class="journal-work-heading journal-overview-heading"><div>${heading}${editionPicker}<p class="journal-work-stage">${esc(reason)}</p></div><div class="journal-work-heading-actions">${toggle}</div></div>${summary}${facts.length ? `<p class="journal-work-facts">${facts.map(fact => `<span>${esc(fact)}</span>`).join('')}</p>` : ''}`;
+      return `<div class="journal-work-heading journal-overview-heading"><div>${heading}${editionPicker}<p class="journal-work-stage">${esc(reason)}</p></div><div class="journal-work-heading-actions">${itemActions(item)}${toggle}</div></div>${summary}${facts.length ? `<p class="journal-work-facts">${facts.map(fact => `<span>${esc(fact)}</span>`).join('')}</p>` : ''}`;
     }
     if (item.source?.kind === 'guide') return `<div class="journal-work-heading"><div>${heading}</div></div>`;
-    if (automatic) return `<div class="journal-work-heading"><div>${heading}${editionPicker}</div><div class="journal-work-heading-actions"><span class="journal-reading-count">${entries.length} 条</span>${toggle}</div></div>${followupSuggestion(item)}`;
+    if (automatic) return `<div class="journal-work-heading"><div>${heading}${editionPicker}</div><div class="journal-work-heading-actions"><span class="journal-reading-count">${entries.length} 条</span>${itemActions(item)}${toggle}</div></div>${followupSuggestion(item)}`;
     const data = item.taskData || {}, stage = ({ past_date: '日期已过', preparing: '准备中', prepare: '准备中', planning: '先做计划', shopping: '采购准备', cooking: '做饭中', deciding: '等待选择', decision: '等待选择', reflection: '收尾回看', complete: '收尾回看', done: '收尾回看', waiting: '等待回音', cancelled: '已取消', planned: '已记下' })[plan.stage] || statusNames[item.status] || '已记下';
     const facts = [item.date && readableDate(item.date), Number.isFinite(data.meal?.servings) && `${data.meal.servings} 人份`, Number.isFinite(data.budget?.total) && `总预算 ¥${data.budget.total.toLocaleString('zh-CN')}`].filter(Boolean);
     const needsScheduleReview = plan.stage === 'past_date';
     const next = typeof plan.nextStep === 'string' ? plan.nextStep : plan.nextStep?.label || '核对已记录的材料。';
-    return `<div class="journal-work-heading"><div>${heading}<p class="journal-work-facts"><span class="journal-work-stage">${esc(stage)}</span>${facts.map(fact => `<span>${esc(fact)}</span>`).join('')}</p></div><div class="journal-work-heading-actions">${toggle}</div></div>${needsScheduleReview ? `<div class="journal-work-next"><p>${esc(next)}</p><button class="text" data-j-action="edit" data-edit-field="date" data-item="${esc(item.id)}">核对安排</button></div>` : ''}`;
+    return `<div class="journal-work-heading"><div>${heading}<p class="journal-work-facts"><span class="journal-work-stage">${esc(stage)}</span>${facts.map(fact => `<span>${esc(fact)}</span>`).join('')}</p></div><div class="journal-work-heading-actions">${itemActions(item)}${toggle}</div></div>${needsScheduleReview ? `<div class="journal-work-next"><p>${esc(next)}</p><button class="text" data-j-action="edit" data-edit-field="date" data-item="${esc(item.id)}">核对安排</button></div>` : ''}`;
+  }
+  function artifactLinks(artifacts) {
+    return `<ul class="journal-artifacts" aria-label="来源与文件">${artifacts.map(a => a.url && safeUrl(a.url) ? `<li><a href="${esc(safeUrl(a.url))}" target="_blank" rel="noopener noreferrer">${esc(a.label)}</a></li>` : a.path ? `<li><strong>${esc(a.label)}</strong><code>${esc(a.path)}</code><small>保存在执行电脑</small></li>` : '').join('')}</ul>`;
   }
   function workReport(item) {
-    const report = item.followupReport, artifacts = report?.artifacts || report?.run?.report?.artifacts || [];
+    const report = item.followupReport;
     if (!report) return '';
-    const routineStatus = !!routineFor(item) && !!report.run?.routine;
-    const answerAt = report.answerAt || report.run?.report?.updatedAt;
-    const reportTime = answerAt && Number.isFinite(answerAt) ? `<time datetime="${esc(new Date(answerAt).toISOString())}">${esc(routineUI.atLabel(answerAt, routineFor(item)?.schedule?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone))}</time>` : '';
+    const artifacts = (report.artifacts || []).filter(a => !a.url || !report.answer?.includes(a.url));
+    const routineStatus = !!routineFor(item), zone = routineFor(item)?.schedule?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const time = at => at && Number.isFinite(at) ? `<time datetime="${esc(new Date(at).toISOString())}">${esc(routineUI.atLabel(at, zone))}</time>` : '';
     const labels = { AGENT_TIMEOUT: '处理超时', ENDPOINT_OFFLINE: '处理助手离线', AGENT_FAILED: '处理未完成' };
-    return `${!routineStatus && report.reason ? `<p class="journal-trial-error" role="status">${esc(labels[report.reason] || report.reason)}<button class="text" data-j-action="item-conversation" data-item="${esc(item.id)}">回到对话</button></p>` : !routineStatus && report.isBusy ? '<p class="note" role="status">正在处理…</p>' : ''}${report.answer ? `<section class="journal-result"><h3>回报${reportTime}</h3><div class="journal-guide-answer" data-guide-report="${esc(item.id)}"></div></section>` : ''}${artifacts.length ? `<ul class="journal-artifacts" aria-label="产物文件">${artifacts.map(a => a.url && safeUrl(a.url) ? `<li><a href="${esc(safeUrl(a.url))}" target="_blank" rel="noopener noreferrer">${esc(a.label)}</a></li>` : a.path ? `<li><strong>${esc(a.label)}</strong><code>${esc(a.path)}</code><small>保存在执行电脑</small></li>` : '').join('')}</ul>` : ''}`;
+    const state = !routineStatus && (report.reason || report.blocked) ? `<p class="journal-trial-error" role="status">${esc(report.blocked || labels[report.reason] || report.reason)}<button class="text" data-j-action="item-conversation" data-item="${esc(item.id)}">回到对话</button></p>` : !routineStatus && report.isBusy ? '<p class="note" role="status">正在处理…</p>' : '';
+    const history = (report.history || []).slice().reverse();
+    const reportSource = report.sourceRef?.conversationId && report.sourceRef?.messageId ? `<button class="journal-report-source" data-j-action="report-message" data-item="${esc(item.id)}" aria-label="定位这条回报的原文" title="定位原文"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M14 3h7v7M21 3l-9 9M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5"/></svg></button>` : '';
+    const answerNode = `<div class="journal-guide-answer" data-guide-report="${esc(item.id)}"></div>`;
+    return `${state}${report.answer ? `<section class="journal-result"><h3>${report.answerOutcome === 'partial' ? '部分结果' : '结果'}${time(report.answerAt || report.run?.report?.updatedAt)}${reportSource}</h3>${answerNode}</section>` : ''}${artifacts.length ? `<details class="journal-work-source journal-source" data-work-detail="artifacts" data-item="${esc(item.id)}" ${workDraft(item).panels?.['detail:artifacts'] ? 'open' : ''}><summary>来源与文件 · ${artifacts.length}</summary>${artifactLinks(artifacts)}</details>` : ''}${history.length ? `<details class="journal-work-source journal-source" data-work-detail="history" data-item="${esc(item.id)}" ${workDraft(item).panels?.['detail:history'] ? 'open' : ''}><summary>历史结果 · ${history.length}</summary>${history.map(entry => `<details><summary>${time(entry.answerAt)}</summary><div class="journal-guide-answer" data-guide-report="${esc(item.id)}" data-history-run="${esc(entry.runId)}"></div>${artifactLinks(entry.artifacts)}</details>`).join('')}</details>` : ''}`;
   }
   const awaitingMaterial = item => item.conversationId && (routineFor(item) || !item.taskType || item.taskType === 'auto') && !item.date && !item.steps?.length && !item.candidates?.length && !Object.keys(item.taskData || {}).length;
   function workAdjustments(item, covered = []) {
@@ -572,24 +595,8 @@
     const feedback = `${draft.error ? `<p class="journal-trial-error" role="alert">${esc(draft.error)}</p>` : ''}${draft.notice ? `<p class="journal-trial-note" role="status">${esc(draft.notice)}</p>` : ''}${trialResult(item, draft)}`;
     return `${(fields || missingBase || (!covered.length && draft.submission)) && !done(item) ? `<details class="journal-work-trial" data-work-detail="trial" data-item="${esc(item.id)}" ${draft.open ? 'open' : ''}><summary>${missingBase && !fields ? '人数试算' : covered.length ? '其他调整条件' : '调整条件，先看看影响'}${missingBase ? '<span>基础份量人数待补</span>' : Object.keys(draft.parameters).length ? '<span>有试算草稿</span>' : ''}</summary>${missingBase ? `<p class="journal-trial-note">先核对已记录材料原本是几人份，再试算新的用量。现有数量与准备进度会保留。</p><button class="outline" data-j-action="edit" data-edit-field="baseServings" data-item="${esc(item.id)}" ${draft.busy || draft.submission ? 'disabled' : ''}>补充基础份量</button>` : ''}${fields ? `<div class="journal-trial-fields">${fields}<button class="outline" data-j-action="work-preview" data-item="${esc(item.id)}" ${draft.busy || draft.submission ? 'disabled' : ''}>${draft.busy === 'preview' ? '正在计算…' : '查看影响'}</button></div>` : ''}${covered.length ? '' : feedback}</details>` : ''}${covered.length && !done(item) ? feedback : ''}`;
   }
-  function workFooter(item, widgets) {
-    if (item.source?.kind === 'guide') return '';
-    const automatic = item.source?.kind === 'automatic', draft = workDraft(item);
-    const sources = { weixin: '微信', imessage: 'iMessage', web: '手动记录', webui: '手动记录', local: '手动记录' };
-    const routine = routineFor(item);
-    if (routine) {
-      const ruleTexts = [routine.instruction, `${routine.title}\n${routine.instruction}`].map(value => value.trim());
-      const original = item.source?.text?.trim(), note = item.note?.trim();
-      const source = original && !ruleTexts.includes(original) ? original : '';
-      const materialNote = note && note !== source && !ruleTexts.includes(note) ? note : '';
-      const material = source || materialNote ? `<details class="journal-work-source journal-source" data-work-detail="source" data-item="${esc(item.id)}" ${draft.sourceOpen ? 'open' : ''}><summary>材料</summary>${source ? `<blockquote>${esc(source)}</blockquote>` : ''}${materialNote ? `<p class="journal-work-note">${esc(materialNote)}</p>` : ''}</details>` : '';
-      return material + (done(item) ? `<button type="button" class="text" data-j-action="undo" data-item="${esc(item.id)}">重新打开手账</button>` : '');
-    }
-    const missing = [...new Set(widgets.flatMap(widget => widget.projection?.missing || []))];
-    const material = automatic ? '' : `<details class="journal-work-source journal-source" data-work-detail="source" data-item="${esc(item.id)}" ${draft.sourceOpen ? 'open' : ''}><summary>材料${missing.length ? `<span>${missing.length} 项待补</span>` : ''}</summary><p>${esc(sources[item.source?.channel] || '生活记录')} · ${esc(readableDate(item.source?.at || item.createdAt))}</p><blockquote>${esc(item.source?.text || '未记录原始交代。')}</blockquote>${item.note ? `<p class="journal-work-note">${esc(item.note)}</p>` : ''}${missing.length ? `<ul>${missing.map(value => `<li>${esc(value)}</li>`).join('')}</ul>` : ''}</details>`;
-    const layout = widgets.map(widget => controls(widget)).join('');
-    return `${material}<details class="journal-item-actions"><summary>更多</summary><div class="actions"><button class="text" data-j-action="edit" data-item="${esc(item.id)}">编辑</button><button class="text" data-j-action="${done(item) ? 'undo' : 'done'}" data-item="${esc(item.id)}">${done(item) ? '重新打开' : automatic ? '归档' : '完成'}</button></div>${automatic && !done(item) ? '<p class="note">归档后不再追加内容，已有材料保留。</p>' : ''}${layout ? `<div class="journal-layout-tools">${layout}</div>` : ''}</details>`;
-  }
+  function workFooter() { return ''; }
+
   function readTrial(itemId) {
     const item = currentItem(itemId), draft = workDraft(item), parameters = {}, supported = workParameters(item);
     for (const input of root.querySelectorAll(`[data-work-field][data-item="${CSS.escape(itemId)}"]`)) {
@@ -669,9 +676,11 @@
     const previousItem = notebookItem;
     const firstByItem = new Map();
     for (const group of groups) if (!firstByItem.has(group.itemId)) firstByItem.set(group.itemId, group);
-    for (const item of extraItems()) if (tab !== 'kept' && (!search || item.title.toLocaleLowerCase().includes(search.toLocaleLowerCase()))) firstByItem.set(item.id, { id: item.id, itemId: item.id, embedded: true, conversation: true });
+    for (const item of extraItems()) if (tab !== 'kept' && (category === 'all' || indexAPI.category(item, snapshot.routines) === category) && (!search || item.title.toLocaleLowerCase().includes(search.toLocaleLowerCase()))) firstByItem.set(item.id, { id: item.id, itemId: item.id, embedded: true, conversation: true });
     const compact = !search;
     const firstGroups = indexAPI.directory([...firstByItem.values()], snapshot.items, compact);
+    const typeOrder = ['tasks', 'routines', 'reference'];
+    if (category === 'all') firstGroups.sort((a, b) => typeOrder.indexOf(indexAPI.category(currentItem(a.itemId), snapshot.routines)) - typeOrder.indexOf(indexAPI.category(currentItem(b.itemId), snapshot.routines)));
     for (const group of firstGroups.filter(g => g.conversation)) {
       const item = currentItem(group.itemId); let page = conversationPages.get(item.id);
       if (!page) { page = document.createElement('section'); page.className = 'journal-workpage journal-message-page'; page.dataset.item = item.id; page.id = 'journal-work-' + item.id; window.PAJournalSurfaces.frame(page); conversationPages.set(item.id, page); root.querySelector('#journal-board').append(page); }
@@ -694,7 +703,9 @@
     for (const [id, page] of conversationPages) if (!wanted.has(id)) { if (id === readingItem) closeConversation(); window.PAJournalSurfaces.clear(page); window.PAJournalSurfaces.unframe(page); page.remove(); conversationPages.delete(id); }
     notebookItems = firstGroups.map(group => group.itemId);
     const requested = notebookSelection[tab];
-    const latest = tab === 'recent' ? firstGroups.filter(g => currentItem(g.itemId)?.source?.kind !== 'guide').sort((a, b) => {
+    const latest = tab === 'recent' ? firstGroups.filter(g => !indexAPI.isGuide(currentItem(g.itemId), snapshot.guide)).sort((a, b) => {
+      const result = group => indexAPI.hasResult(currentItem(group.itemId));
+      if (result(a) !== result(b)) return Number(result(b)) - Number(result(a));
       const at = group => { const item = currentItem(group.itemId), value = item?.updatedAt || item?.createdAt; return typeof value === 'number' ? value : Date.parse(value || '') || 0; };
       return at(b) - at(a);
     })[0]?.itemId : null;
@@ -730,11 +741,16 @@
       const item = currentItem(group.itemId), selected = index === activeIndex, title = compact && item.contentSeries ? item.contentSeries.title : item.title;
       return `<button type="button" id="${edge ? 'edge' : 'bookmark'}-${esc(tab)}-${esc(item.id)}" class="${edge ? 'journal-edge-bookmark' : 'journal-bookmark'}" data-j-action="bookmark" data-item="${esc(item.id)}" data-tone="${index % 4}" ${selected ? 'aria-current="page"' : ''} aria-controls="${group.embedded ? 'journal-work-' : 'journal-widget-'}${esc(group.id)}" aria-label="翻到：${esc(title)}"><span class="journal-bookmark-number" aria-hidden="true">${number(index)}</span><span class="journal-bookmark-copy"><strong>${esc(title)}</strong>${!edge && notebookMeta(item) ? `<small>${esc(notebookMeta(item))}</small>` : ''}</span>${edge ? '' : '<span class="journal-bookmark-arrow" aria-hidden="true">↗</span>'}</button>`;
     };
-    patchBookPart(root.querySelector('#journal-bookmarks'), firstGroups.map((group, index) => bookmark(group, index)).join('') || '<p class="journal-index-empty">这一册还没有内容。</p>');
+    const typeNames = { tasks: '事务', routines: '巡查', reference: '资料' };
+    const directoryHTML = category === 'all' ? typeOrder.map(type => {
+      const rows = firstGroups.map((group, index) => ({ group, index })).filter(({ group }) => indexAPI.category(currentItem(group.itemId), snapshot.routines) === type);
+      return rows.length ? `<section class="journal-bookmark-group" aria-label="${typeNames[type]}"><h2>${typeNames[type]}</h2>${rows.map(({ group, index }) => bookmark(group, index)).join('')}</section>` : '';
+    }).join('') : firstGroups.map((group, index) => bookmark(group, index)).join('');
+    patchBookPart(root.querySelector('#journal-bookmarks'), directoryHTML || '<p class="journal-index-empty">这一册还没有内容。</p>');
     // A short set of physical tabs complements the complete, scrollable index.
     const start = Math.max(0, Math.min(activeIndex - 1, firstGroups.length - 4));
     patchBookPart(root.querySelector('#journal-edge-tabs'), firstGroups.slice(start, start + 4).map((group, index) => bookmark(group, start + index, true)).join(''));
-    root.querySelector('.journal-guide-entry').hidden = notebookItems.some(id => currentItem(id)?.source?.kind === 'guide' && !done(currentItem(id)));
+    root.querySelector('.journal-guide-entry').hidden = notebookItems.length > 0;
     root.querySelector('.journal-book').dataset.guide = String(currentItem(notebookItem)?.source?.kind === 'guide');
     root.querySelector('#journal-current-chapter').textContent = notebookItem ? `${number(activeIndex)} / ${number(firstGroups.length - 1)}` : '';
     const clearSearch = root.querySelector('#journal-clear-search');
@@ -743,8 +759,9 @@
     patchBookPart(pagination, `<button type="button" data-j-action="bookmark-previous" ${activeIndex <= 0 ? 'disabled' : ''}><span aria-hidden="true">←</span> 上一篇</button><span aria-live="polite">${notebookItem ? `${number(activeIndex)} / ${number(firstGroups.length - 1)}` : '还没有记录'}</span><button type="button" data-j-action="bookmark-next" ${activeIndex < 0 || activeIndex >= firstGroups.length - 1 ? 'disabled' : ''}>下一篇 <span aria-hidden="true">→</span></button>`);
   }
   function selectNotebookItem(itemId) {
-    if (window.PAChat.isBusy() || remoteReader?.isBusy()) { setStatus('正在提交，请稍候再翻页。'); return; }
+    if (sorting || window.PAChat.isBusy() || remoteReader?.isBusy()) { setStatus('正在提交，请稍候再翻页。'); return; }
     if (!indexAPI.representative(notebookItems, snapshot.items, itemId)) return;
+    readingIntent++;
     if (itemId === notebookItem && root.querySelector('.journal-book').dataset.indexOpen !== 'true') return;
     notebookSelection[tab] = itemId;
     workDraft(currentItem(itemId)).expanded = true;
@@ -758,7 +775,7 @@
     if (bounds && (bounds.top < 0 || bounds.bottom > innerHeight)) heading.scrollIntoView({ block: 'start', behavior: 'instant' });
   }
   function patchBoard() {
-    if (!root || creatingConversation) return;
+    if (!root || creatingConversation || sorting) return;
     const focused = document.activeElement, focusedWidget = focused.closest?.('.journal-widget')?.dataset.widget;
     const board = root.querySelector('#journal-board'), widgets = visibleWidgets();
     const keys = new Set(widgets.map(widget => widget.id)), groups = workGroups(widgets), groupKeys = new Set(groups.filter(group => group.embedded).map(group => group.id));
@@ -768,7 +785,7 @@
     board.querySelector('.journal-empty')?.remove();
     if (!widgets.length && !guideOnly) {
       const empty = document.createElement('section'); empty.className = 'journal-empty';
-      empty.innerHTML = `<h2>${search ? '还没有找到这件事' : tab === 'kept' ? '把值得留下的日子放在这里' : tab === 'all' ? '从一件小事开始' : '眼下，给生活留一点空白'}</h2><p>${search ? '试试其他关键词，或切换到“全部”查找。' : '记下一件挂心的事、一条想继续读的信息。小满会根据真实记录整理手账；本机录入无需先连接微信。'}</p>`;
+      empty.innerHTML = search ? '<h2>没有找到这件事</h2><p>试试其他关键词。</p>' : category !== 'all' ? '<h2>这里还没有记录</h2>' : '<h2>从一件真实的事开始</h2><button class="outline" data-j-action="guide">找 Mori</button>';
       board.append(empty);
     }
     const seenItems = new Set();
@@ -782,7 +799,8 @@
         const header = page.querySelector('.journal-work-header'), footer = page.querySelector('.journal-work-footer');
         const chapter = [...seenItems].indexOf(item.id) + 1;
         patchContent(header, workHeader(item, group.widgets, plan, group.id, continuation, chapter)); header.className = 'journal-work-header';
-        patchContent(footer, continuation || item.source?.kind === 'guide' && !done(item) ? '' : workFooter(item, widgets.filter(widget => widget.itemId === item.id))); footer.className = 'journal-work-footer';
+        const followAction = workDraft(item).continueRequest ? `<div class="journal-trial-error" role="status">上次继续操作尚未确认。<button class="text" data-j-action="continue-selection" data-item="${esc(item.id)}">核对操作</button></div>` : '';
+        patchContent(footer, continuation || item.source?.kind === 'guide' && !done(item) ? '' : followAction + workFooter(item, widgets.filter(widget => widget.itemId === item.id))); footer.className = 'journal-work-footer';
         page.className = 'journal-workpage'; page.dataset.item = item.id; page.dataset.stage = plan.stage || 'preparing'; page.id = `journal-work-${group.id}`;
         page.dataset.automatic = String(item.source?.kind === 'automatic');
         page.dataset.group = group.id; page.dataset.expanded = String(workExpanded(item)); page.dataset.priority = String(workPriority(item).rank);
@@ -793,7 +811,7 @@
         output.id = `chapter-${item.id}-output`; output.setAttribute('aria-labelledby', `work-title-${group.id}`);
         for (const slot of output.children) slot.hidden = !workExpanded(item);
         const reportSlot = page.querySelector('.journal-work-report');
-        patchContent(reportSlot, workReport(item) || (awaitingMaterial(item) ? `<p class="note">${routineFor(item) && !routineFor(item).lastRun ? '等待首次检查' : '还没有产物'}</p>` : '')); reportSlot.className = 'journal-work-report';
+        patchContent(reportSlot, workReport(item) || (awaitingMaterial(item) ? `<p class="note">${routineFor(item) ? '尚无检查结果' : '还没有产物'}</p>` : '')); reportSlot.className = 'journal-work-report';
         page.setAttribute('aria-label', item.title);
         const options = workParameters(item); page.dataset.linkedServings = String(options.servings && !done(item));
         const surface = !continuation && snapshot.layout?.surfaces?.find(value => value.itemId === item.id), surfaceNode = page.querySelector('.journal-surface');
@@ -829,13 +847,20 @@
         card.className = 'journal-widget'; card.id = `journal-widget-${widget.id}`; card.dataset.widget = widget.id;
         card.dataset.item = item.id; card.dataset.kind = widget.projection?.kind || widget.kind; card.dataset.emphasis = section?.role === 'primary' || !group.embedded && widget.emphasis === 'primary' ? 'primary' : 'secondary';
         card.dataset.presentation = presentation;
-        card.hidden = !!awaitingMaterial(item);
+        card.hidden = !!awaitingMaterial(item) || !hasWidgetDraft(widgetDrafts.get(widget.id)) && widgetAPI.isEmptyReference(widget, item);
         const reading = card.querySelector('[data-auto-reading]');
         if (reading) window.PAJournalSurfaces.renderReading(reading, widget.projection?.data?.entries || item.taskData?.collection?.entries || [], automaticEntries(item));
-        const at = parent.children[group.embedded ? localIndex : groupIndex];
-        if (at !== card) { const focus = card.contains(document.activeElement) ? document.activeElement : null; parent.insertBefore(card, at || null); if (focus) focusControl(focus); }
+        if (!group.embedded) {
+          const at = parent.children[groupIndex];
+          if (at !== card) { const focus = card.contains(document.activeElement) ? document.activeElement : null; parent.insertBefore(card, at || null); if (focus) focusControl(focus); }
+        }
       });
       if (page) {
+        window.PAJournalSurfaces.renderWidgetOrder(parent, {
+          items: group.widgets.filter(widget => !cards.get(widget.id).hidden).map(widget => ({ id: widget.id, card: cards.get(widget.id), label: widgetNames[widget.projection?.kind || widget.kind] || '组件', lane: preferences().pinned.includes(widget.id) ? 'pinned' : 'ordinary' })),
+          enabled: tab === 'recent' && !pending && !awaitingMaterial(item) && group.widgets.every(widget => !widget.uiRetained && snapshot.layout.widgets.some(saved => saved.id === widget.id)),
+          onBegin: (ids, id) => beginWidgetOrder(item.id, ids, id), onCommit: saveWidgetOrder, onCancel: cancelWidgetOrder,
+        });
         let guide = page.querySelector('.journal-guide-next');
         if (item.source?.kind === 'guide' && !continuation) {
           if (!guide) { guide = document.createElement('div'); guide.className = 'journal-guide-next'; page.querySelector('.journal-output').append(guide); }
@@ -848,7 +873,8 @@
         } else guide?.remove();
         for (const reportNode of page.querySelectorAll('[data-guide-report]')) {
           const report = item.source?.kind === 'guide' ? snapshot.guide?.report : item.followupReport;
-          if (report?.answer) window.PAJournalSurfaces.renderReport(reportNode, report.answer);
+          const answer = reportNode.dataset.historyRun ? report?.history?.find(entry => entry.runId === reportNode.dataset.historyRun)?.answer : report?.answer;
+          if (answer) window.PAJournalSurfaces.renderReport(reportNode, answer);
         }
       }
       if (page && board.children[groupIndex] !== page) { const focus = page.contains(document.activeElement) ? document.activeElement : null; board.insertBefore(page, board.children[groupIndex] || null); if (focus) focusControl(focus); }
@@ -867,6 +893,7 @@
     const retry = root.querySelector('#journal-guide-retry'); if (retry) retry.hidden = !guideOnly || !!snapshot.guide || pending;
     const p = preferences(), design = snapshot.design || {}, busyDesign = ['queued', 'running'].includes(design.status), node = root.querySelector('#journal-design');
     motion.set(p.motion);
+    node.hidden = design.status !== 'failed';
     node.dataset.pending = String(busyDesign);
     node.querySelector('strong').textContent = busyDesign ? '排版中…' : design.status === 'failed' ? '排版失败' : snapshot.layout?.source === 'agent' ? '已排版' : '默认排版';
     node.querySelector('p').textContent = design.status === 'failed' ? (design.message || '当前手账与记录仍可使用。') : !snapshot.designAvailable ? snapshot.designReason || '设计服务暂不可用，按现有记录呈现。' : p.autoLayout ? '按事项阶段自动整理；你可以校对材料。' : '自动整理已暂停，记录仍会同步。';
@@ -878,14 +905,15 @@
     const settings = root.querySelector('#journal-preferences');
     if (design.status === 'failed' && settings.dataset.designStatus !== 'failed') settings.open = true;
     settings.dataset.designStatus = design.status;
-    window.PAJournalSurfaces.renderTabs(root.querySelector('.journal-tabs'), { value: tab, onChange: value => {
-      if (tab === value) return;
-      const previousItem = notebookItem;
-      tab = value; patchChrome(); patchBoard();
-      if (previousItem === notebookItem) motion.play(root.querySelector('.journal-workpage:not([hidden])'), 'page');
+    const categories = new Set([...snapshot.items, ...extraItems()].filter(item => !indexAPI.isGuide(item, snapshot.guide)).map(item => indexAPI.category(item, snapshot.routines)));
+    const types = [['all', '全部'], ['tasks', '事务'], ['routines', '巡查'], ['reference', '资料']].filter(([id]) => id === 'all' || id === category || categories.has(id));
+    window.PAJournalSurfaces.renderTabs(root.querySelector('.journal-tabs'), { value: category, items: types, onChange: value => {
+      if (category === value || sorting) return;
+      readingIntent++; category = value; saveWorkState(); patchChrome(); patchBoard();
     } });
+    root.querySelector('#journal-include-archived').checked = tab !== 'recent';
     root.querySelector('#journal-board').setAttribute('role', 'tabpanel');
-    root.querySelector('#journal-board').setAttribute('aria-labelledby', `journal-tab-${tab}`);
+    root.querySelector('#journal-board').setAttribute('aria-labelledby', `journal-tab-${category}`);
     const select = root.querySelector('#journal-scope');
     if (!select.contains(document.activeElement)) {
       const options = [...new Map([{ scope: { account: 'local', userId: 'owner' }, label: '我的手账' }, ...scopes].map(option => [scopeKey(option.scope), option])).values()];
@@ -914,6 +942,7 @@
   }
   function update(next, nextTasks = tasks, nextScopes = scopes) {
     if (!root || !next || pending || window.PAChat.isBusy()) return;
+    if (sorting) { deferredUpdate = { next, tasks: nextTasks, scopes: nextScopes }; return; }
     if (snapshot && (scopeKey(next.scope) !== scopeKey(snapshot.scope) || next.revision < snapshot.revision)) return;
     snapshot = next; tasks = nextTasks; scopes = nextScopes; reconcileWidgetDrafts();
     patchChrome(); patchBoard(); patchReminders();
@@ -1026,6 +1055,33 @@
     if (at && !Number.isFinite(at.getTime())) invalid('date', '请填写有效日期，或留空。');
     return { title: field('title').trim(), kind: field('kind'), taskType: type, taskData, date: at?.toISOString() || null, note: field('note'), steps: base.steps, candidates: base.candidates };
   }
+  function beginWidgetOrder(itemId, ids, widgetId) {
+    if (pending || sorting || isEditing() || window.PAChat.isBusy() || itemId !== notebookItem) return false;
+    const widgets = snapshot.layout.widgets;
+    if (ids.length < 2 || ids.some(id => !widgets.some(widget => widget.id === id && widget.itemId === itemId))) return false;
+    sorting = { itemId, widgetId, ids: [...ids], scope: { ...snapshot.scope }, revision: snapshot.revision, version: snapshot.layout.version, token: selectionToken, order: [...new Set([...preferences().order, ...widgets.map(widget => widget.id)])] };
+    return true;
+  }
+  function applyDeferredUpdate() {
+    const saved = deferredUpdate; deferredUpdate = null;
+    if (saved && alive) update(saved.next, saved.tasks, saved.scopes);
+  }
+  function cancelWidgetOrder() {
+    sorting = null;
+    queueMicrotask(() => { if (alive && !sorting && !pending) { applyDeferredUpdate(); patchBoard(); } });
+  }
+  async function saveWidgetOrder(ids) {
+    const operation = sorting; if (!operation || operation.token !== selectionToken) return false;
+    sorting = null;
+    let order;
+    try { order = indexAPI.mergeOrder(operation.order, operation.ids, ids); }
+    catch { setStatus('组件已变化，请重新调整。', true); applyDeferredUpdate(); return false; }
+    const saved = await mutate('layout', { version: operation.version, order }, undefined, undefined, operation);
+    if (!alive || operation.token !== selectionToken) return saved;
+    applyDeferredUpdate();
+    if (!saved) setStatus(`${lastMutationError?.message || '位置未保存。'} 已恢复确认过的顺序，请核对后重新调整。`, true);
+    return saved;
+  }
   function moveWidget(id, offset) {
     const ids = visibleWidgets().filter(widget => !widget.uiRetained).map(widget => widget.id), index = ids.indexOf(id), to = index + offset;
     if (index < 0 || to < 0 || to >= ids.length) return;
@@ -1117,13 +1173,39 @@
       event.preventDefault(); motion.toggle(summary.parentElement);
       const details = summary.parentElement;
       if (details.dataset.workPanel) { const item = currentItem(details.dataset.item); if (item) { const draft = workDraft(item); draft.panels ||= {}; draft.panels[details.dataset.workPanel] = details.dataset.motionTarget ? details.dataset.motionTarget === 'open' : details.open; saveWorkState(); } }
-      if (details.dataset.workDetail) { const item = currentItem(details.dataset.item); if (item) { const draft = workDraft(item); draft[details.dataset.workDetail === 'trial' ? 'open' : 'sourceOpen'] = details.dataset.motionTarget ? details.dataset.motionTarget === 'open' : details.open; saveWorkState(); } }
+      if (details.dataset.workDetail) { const item = currentItem(details.dataset.item); if (item) { const draft = workDraft(item); const open = details.dataset.motionTarget ? details.dataset.motionTarget === 'open' : details.open; if (['artifacts', 'history', 'report'].includes(details.dataset.workDetail)) (draft.panels ||= {})['detail:' + details.dataset.workDetail] = open; else draft[details.dataset.workDetail === 'trial' ? 'open' : 'sourceOpen'] = open; saveWorkState(); } }
       return;
     }
     const button = event.target.closest('button,wa-button'); if (!button || button.disabled || !root?.contains(button) && !editor?.contains(button)) return;
     if (pending && !button.matches(browsingControls)) { event.preventDefault(); return; }
     const action = button.dataset.jAction, itemId = button.dataset.item, widgetId = button.dataset.widget, p = preferences();
+    if (action === 'source-message' || action === 'report-message') {
+      const item = currentItem(itemId), ref = action === 'report-message' ? item?.followupReport?.sourceRef : item?.sourceRef;
+      if (!ref?.conversationId || !ref?.messageId) return setStatus('这条记录没有可定位的原消息。', true);
+      return void navigate?.({ page: 'chat', conversationId: ref.conversationId, messageId: ref.messageId, returnTo: { page: 'journal', itemId } });
+    }
     if (action === 'routine-connect') return void navigate?.({ page: 'connections' });
+    if (action === 'continue-selection') {
+      const item = currentItem(itemId), draft = workDraft(item);
+      if (draft.continuing) return;
+      draft.continuing = true; button.disabled = true;
+      const submission = draft.continueRequest ||= { itemId, itemVersion: item.version, requestId: routineUI.requestId() };
+      saveWorkState();
+      void (async () => { try {
+        const result = await request('journal/continue', submission); draft.continueRequest = null; saveWorkState();
+        await openConversation({ itemId, conversationId: result.conversationId });
+      } catch (error) {
+        if (['VERSION_CONFLICT', 'CONFLICT', 'BUSY', 'JOURNAL_CLOSED', 'ITEM_NOT_FOUND', 'ATTACHMENT_EXPIRED'].includes(error.code)) draft.continueRequest = null;
+        setStatus(error.code === 'ATTACHMENT_EXPIRED' ? '本篇资料已过期，请在对话中重新附上文件。' : error.code === 'VERSION_CONFLICT' ? '选择已变化，请刷新核对后再继续。' : error.code === 'BUSY' ? '本篇仍有任务待处理，请先查看对话。' : error.message, true);
+      } finally { draft.continuing = false; saveWorkState(); patchBoard(); } })(); return;
+    }
+    if (action === 'routine-recover') {
+      const routine = routineFor(currentItem(itemId));
+      void (async () => { try {
+        await openConversation({ conversationId: routine.conversationId, itemId });
+        window.PAChat.addDraft('帮我修复这项巡查的读取阻碍。先核对最新执行记录和当前授权，逐一验证失败来源；保留上次有效结果，不将未读到当作无变化。需要替换必查源或调整权限时，列出具体差异，等我确认，不直接修改。不要重发通知。\n巡查：' + routine.title + '\n最近错误：' + (routine.error || routine.lastStatus) + '\n待核对来源：' + JSON.stringify(routine.lastRun?.gaps || []));
+      } catch (error) { setStatus(error.message, true); } })(); return;
+    }
     if (action === 'routine-edit') return void openConversation({ conversationId: routineFor(currentItem(itemId))?.conversationId, itemId }).catch(error => setStatus(error.message, true));
     if (['routine-pause', 'routine-resume', 'routine-run_now', 'routine-reconcile', 'routine-end', 'routine-authorize_scope'].includes(action)) return void changeRoutine(itemId, action.slice('routine-'.length), button);
     if (action === 'routine-save') {
@@ -1133,16 +1215,16 @@
     }
     if (action === 'routine-reset') { const draft = workDraft(currentItem(itemId)); draft.routineSettings = null; draft.routineError = ''; saveWorkState(); patchBoard(); return; }
     if (action?.startsWith('suggestion-')) return void changeSuggestion(itemId, action.slice('suggestion-'.length), button);
-    if (action === 'clear-search') { search = ''; root.querySelector('#journal-search').value = ''; patchBoard(); root.querySelector('#journal-index-toggle').focus(); return; }
+    if (action === 'clear-search') { readingIntent++; search = ''; root.querySelector('#journal-search').value = ''; patchBoard(); root.querySelector('#journal-index-toggle').focus(); return; }
     if (action === 'guide') return void openGuide();
     if (action === 'guide-follow') return void followGuide(itemId, button);
     if (action === 'item-conversation') return void (currentItem(itemId)?.source?.kind === 'conversation' ? switchChapter(currentItem(itemId), 'conversation') : followItem(itemId, button));
     if (action === 'guide-continue') { const item = currentItem(button.closest('[data-item]')?.dataset.item); void openConversation({ conversationId: conversationIdFor(item) || snapshot.guide?.report?.conversationId }).catch(error => setStatus(error.message, true)); return; }
     if (action === 'messages-retry') { void loadConversations(); return; }
-    if (action === 'message-new') { void openConversation({ newConversation: true }).catch(error => setStatus(error.message, true)); return; }
+    if (action === 'message-new') return void navigate?.({ page: 'chat', botId: 'xiaoman' });
     if (action === 'guide-result') return void (guideOnly ? navigate?.({ page: 'journal', itemId: snapshot.guide?.resultItemId }) : openItem(snapshot.guide?.resultItemId));
     if (action === 'guide-connect') return void navigate?.({ page: 'connections' });
-    if (action === 'guide-compose') return void navigate?.({ page: 'onboarding', section: 'compose' });
+    if (action === 'guide-compose') return void openGuide();
     if (action === 'bookmark') return selectNotebookItem(itemId);
     if (action === 'bookmark-next' || action === 'bookmark-previous') return selectNotebookItem(notebookItems[notebookItems.indexOf(indexAPI.representative(notebookItems, snapshot.items, notebookItem)) + (action === 'bookmark-next' ? 1 : -1)]);
     if (action === 'notebook-index') {
@@ -1287,6 +1369,7 @@
       return;
     }
     if (target.matches('[data-j-step]')) { const saved = await mutate('step', { stepId: target.dataset.jStep, done: target.checked }, target.dataset.item, target); if (!saved) target.checked = !target.checked; return; }
+    if (target.id === 'journal-include-archived') { readingIntent++; tab = target.checked ? 'all' : 'recent'; saveWorkState(); patchChrome(); patchBoard(); return; }
     if (target.id === 'journal-auto') return mutate('preferences', { autoLayout: target.checked }, null, target);
     if (target.id === 'journal-motion') return mutate('preferences', { motion: target.value }, null, target);
     if (target.id === 'journal-scope') {
@@ -1302,20 +1385,20 @@
   }
   function mount(options) {
     if (root === options.root && root.querySelector('.journal')) return update(options.snapshot, options.tasks, options.scopes);
-    unmount(); runtime = options.runtime; localAgentAvailable = options.localAgentAvailable; root = options.root; request = options.api; navigate = options.navigate; snapshot = options.snapshot; tasks = options.tasks || []; scopes = options.scopes || []; tab = 'recent'; search = ''; alive = true; selectionToken++; remindersInitialized = false; listeners = new AbortController();
+    unmount(); runtime = options.runtime; localAgentAvailable = options.localAgentAvailable; root = options.root; request = options.api; navigate = options.navigate; snapshot = options.snapshot; tasks = options.tasks || []; scopes = options.scopes || []; tab = 'recent'; category = 'all'; search = ''; sorting = null; deferredUpdate = null; readingIntent = 0; alive = true; selectionToken++; remindersInitialized = false; listeners = new AbortController();
     guideOnly = options.guideOnly === true;
     if (guideOnly) tab = 'all';
     const listen = (target, event, callback) => target.addEventListener(event, callback, { signal: listeners.signal });
     root.innerHTML = `<section class="journal journal-notebook${guideOnly ? ' journal-onboarding' : ''}" aria-label="${guideOnly ? '从真实材料开始' : '生活手账'}">
       <div class="journal-book" data-index-open="false">
-          <div class="journal-mobile-reader"><h1 class="sr-only" tabindex="-1">手账</h1><button type="button" id="journal-index-toggle" data-j-action="notebook-index" aria-expanded="false" aria-controls="journal-index">书签目录</button><span id="journal-current-chapter"></span><button type="button" id="journal-clear-search" data-j-action="clear-search" hidden></button><button type="button" class="text journal-mobile-add" data-j-action="message-new">＋ 写一页</button></div>
+          <div class="journal-mobile-reader"><h1 class="sr-only" tabindex="-1">手账</h1><button type="button" id="journal-index-toggle" data-j-action="notebook-index" aria-expanded="false" aria-controls="journal-index">书签目录</button><span id="journal-current-chapter"></span><button type="button" id="journal-clear-search" data-j-action="clear-search" hidden></button><button type="button" class="text journal-mobile-add" data-j-action="message-new">＋ 新任务</button></div>
         <aside class="journal-index" id="journal-index" aria-label="手账目录">
           <div class="journal-index-sticky">
-            <header class="journal-header"><div><h1 tabindex="-1">我的手账</h1><p class="journal-edition">${esc(new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'long' }).format(new Date()))}</p></div><button class="primary" id="journal-add" data-j-action="message-new"><span aria-hidden="true">＋</span> 写一页</button></header>
+            <header class="journal-header"><div><h1 tabindex="-1">我的手账</h1><p class="journal-edition">${esc(new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'long' }).format(new Date()))}</p></div><button class="primary" id="journal-add" data-j-action="message-new"><span aria-hidden="true">＋</span> 新任务</button></header>
             <div class="journal-settings-body journal-scope-row"><label for="journal-scope">正在查看 <select id="journal-scope" aria-label="正在查看的手账"></select></label></div>
-            <div class="journal-toolbar"><nav class="journal-tabs" aria-label="手账视图"></nav><label class="journal-search" for="journal-search"><span class="sr-only">查找手账</span><input id="journal-search" type="search" placeholder="搜索" autocomplete="off"></label></div>
+            <div class="journal-toolbar"><nav class="journal-tabs" aria-label="手账类型"></nav><label class="journal-search" for="journal-search"><span class="sr-only">查找手账</span><input id="journal-search" type="search" placeholder="搜索" autocomplete="off"></label><label class="journal-archive-filter"><input type="checkbox" id="journal-include-archived">包含已归档</label></div>
             <nav class="journal-bookmarks" id="journal-bookmarks" aria-label="按书签查找任务"></nav>
-            <button type="button" class="journal-guide-entry" data-j-action="guide">认识小满</button>
+            <button type="button" class="journal-guide-entry" data-j-action="guide">认识 Mori</button>
           </div>
         </aside>
         <div class="journal-leaves"><span class="journal-spine-ribbon" aria-hidden="true"></span>
@@ -1326,9 +1409,9 @@
         </div>
         <nav class="journal-edge-tabs" id="journal-edge-tabs" aria-label="页边书签"></nav>
       </div>
-      <details class="journal-settings" id="journal-preferences"><summary>手账设置</summary>
-        <div class="journal-design" id="journal-design"><div class="journal-design-copy"><strong></strong><details class="journal-design-detail"><summary>详情</summary><p></p></details></div><button class="outline" id="journal-redesign" data-j-action="design">重新排版</button></div>
-        <div class="journal-settings-body"><button type="button" class="text" data-j-action="add">手动记事</button><label><input id="journal-auto" type="checkbox">自动排版</label><label for="journal-motion">动效<select id="journal-motion"><option value="system">跟随系统</option><option value="reduced">减少</option><option value="off">关闭</option></select></label></div><div class="journal-hidden-list" id="journal-hidden"></div>
+      <details class="journal-settings" id="journal-preferences"><summary>显示选项</summary>
+        <div class="journal-design" id="journal-design" hidden><div class="journal-design-copy"><strong></strong><details class="journal-design-detail"><summary>详情</summary><p></p></details></div><button class="outline" id="journal-redesign" data-j-action="design">重新排版</button></div>
+        <div class="journal-settings-body"><label><input id="journal-auto" type="checkbox">自动排版</label><label for="journal-motion">动效<select id="journal-motion"><option value="system">跟随系统</option><option value="reduced">减少</option><option value="off">关闭</option></select></label></div><div class="journal-hidden-list" id="journal-hidden"></div>
       </details>
     </section>`;
     editor = document.createElement('dialog'); editor.className = 'journal-editor'; editor.setAttribute('aria-labelledby', 'journal-editor-title'); document.body.append(editor);
@@ -1340,6 +1423,8 @@
     }, { capture: true, signal: listeners.signal });
     listen(root, 'click', click); listen(root, 'change', change);
     listen(root, 'keydown', event => {
+      const menu = event.target.closest('.journal-chapter-menu[open]');
+      if (menu && event.key === 'Escape') { event.preventDefault(); menu.open = false; menu.querySelector('summary').focus(); return; }
       const nav = event.target.closest('#journal-bookmarks,#journal-edge-tabs');
       if (!nav || !event.target.matches('button') || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
       const buttons = [...nav.querySelectorAll('button')], index = buttons.indexOf(event.target);
@@ -1363,7 +1448,7 @@
         event.target.closest('.journal-workpage')?.querySelector('.journal-trial-result')?.remove();
       }
     });
-    listen(root.querySelector('#journal-search'), 'input', event => { search = event.target.value; patchBoard(); });
+    listen(root.querySelector('#journal-search'), 'input', event => { readingIntent++; search = event.target.value; patchBoard(); });
     listen(root, 'focusout', deferredPatch);
     listen(window, 'resize', deferredPatch);
     listen(editor, 'click', click); listen(editor, 'change', change); listen(editor, 'input', () => { if (editing) editing.dirty = true; }); listen(editor, 'change', () => { if (editing) editing.dirty = true; });
@@ -1373,11 +1458,7 @@
     const header = root.querySelector('.journal-header');
     header.insertBefore(root.querySelector('.journal-scope-row'), root.querySelector('#journal-add'));
     restoreWorkState(); patchChrome(); patchBoard(); patchReminders();
-    if (guideOnly) {
-      const guide = snapshot.items.find(item => item.source?.kind === 'guide');
-      if (guide && snapshot.guide) { tab = 'all'; search = ''; notebookSelection[tab] = guide.id; workDraft(guide).expanded = true; patchChrome(); patchBoard(); }
-      else void openGuide();
-    }
+    if (guideOnly) void openGuide();
     const panel = document.createElement('details');
     panel.id = 'journal-content-settings'; panel.className = 'journal-settings'; panel.hidden = true;
     panel.innerHTML = '<summary>资料与兴趣</summary><div class="journal-settings-body"></div>';
@@ -1392,18 +1473,22 @@
     refreshTimer = setInterval(() => { if (alive && !pending && !document.hidden) void reload().catch(error => setStatus(error.message, true)); }, 4000);
   }
   function deferredPatch() { setTimeout(() => { if (root && !pending) patchBoard(); }, 0); }
-  function unmount() { creatingConversation = false; if (root) closeConversation(); hub = null; remoteState = null; conversationPages.clear(); chapterViews.clear(); statusMessage = ''; automaticContent = null; automaticDirty = false; if (root) window.PAJournalSurfaces?.clear(root); listeners?.abort(); alive = false; selectionToken++; pending = false; setBusy(false); clearInterval(refreshTimer); clearTimeout(statusTimer); if (root) { root.removeEventListener('click', click); root.removeEventListener('change', change); root.removeEventListener('focusout', deferredPatch); } editor?.remove(); editor = null; editing = null; root = null; cards.clear(); workpages.clear(); workDrafts.clear(); widgetViews.clear(); widgetDrafts.clear(); widgetFailures.clear(); notebookSelection = {}; notebookItems = []; notebookItem = null; motion.stop(); }
+  function unmount() { sorting = null; deferredUpdate = null; creatingConversation = false; journalDraftItem = null; if (root) closeConversation(); hub = null; remoteState = null; conversationPages.clear(); chapterViews.clear(); statusMessage = ''; automaticContent = null; automaticDirty = false; if (root) window.PAJournalSurfaces?.clear(root); listeners?.abort(); alive = false; selectionToken++; pending = false; setBusy(false); clearInterval(refreshTimer); clearTimeout(statusTimer); if (root) { root.removeEventListener('click', click); root.removeEventListener('change', change); root.removeEventListener('focusout', deferredPatch); } editor?.remove(); editor = null; editing = null; root = null; cards.clear(); workpages.clear(); workDrafts.clear(); widgetViews.clear(); widgetDrafts.clear(); widgetFailures.clear(); notebookSelection = {}; notebookItems = []; notebookItem = null; motion.stop(); }
   async function openItem(itemId, entryId) {
     if (!root || pending || isEditing()) return;
     if (itemId.startsWith('conversation-')) return openConversation({ conversationId: itemId.slice(13) });
-    const targetRoot = root, token = selectionToken;
+    const targetRoot = root, token = selectionToken, intent = readingIntent;
     if (!currentItem(itemId)) await reload();
-    if (!alive || root !== targetRoot || token !== selectionToken || pending || isEditing()) return;
+    if (!alive || root !== targetRoot || token !== selectionToken || intent !== readingIntent || pending || isEditing()) return;
     const item = currentItem(itemId);
     if (!item) throw new Error('这件事当前不可查看，请在手账中核对最新记录。');
+    if (indexAPI.isGuide(item, snapshot.guide)) {
+      if (snapshot.guide?.resultItemId && snapshot.guide.resultItemId !== itemId) return openItem(snapshot.guide.resultItemId, entryId);
+      return openGuide();
+    }
     workDraft(item).expanded = true;
     // A direct link selects a bookmark; it is not a search for that title.
-    tab = done(item) ? 'kept' : 'recent'; search = '';
+    tab = done(item) ? 'all' : 'recent'; category = 'all'; search = '';
     if (!visibleWidgets().some(widget => widget.itemId === itemId)) tab = 'all';
     notebookSelection[tab] = itemId; saveWorkState();
     root.querySelector('#journal-search').value = search; patchChrome(); patchBoard();
@@ -1419,22 +1504,22 @@
       if (entry) saveWorkState();
       if (trigger) { if (trigger.getAttribute('aria-expanded') !== 'true') trigger.click(); trigger.focus({ preventScroll: true }); entry.scrollIntoView({ block: 'start' }); return; }
     }
-    const target = card || root.querySelector(`.journal-workpage[data-item="${CSS.escape(itemId)}"]`);
+    const target = root.querySelector(`.journal-workpage[data-item="${CSS.escape(itemId)}"]`) || card;
     if (target) { target.scrollIntoView({ block: 'start' }); const heading = target.querySelector('h2,h3'); if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); } if (card) motion.play(card, 'notice'); }
   }
   function guideFooter(item) {
     const guide = snapshot.guide, source = guide?.sources?.find(row => row.id === item.candidates?.find(candidate => candidate.selected)?.id), report = guide?.report;
     const selected = source ? `<details class="journal-guide-context journal-source"><summary>材料与来源</summary><p>${esc(source.relevance)}</p><p>${esc(source.summary)}</p><p>${esc(source.coverage)} · ${esc(readableDate(source.observedAt))}</p>${source.evidence.map(cite => `<blockquote>${esc(cite.quote)}</blockquote>${safeUrl(cite.url) ? `<a href="${esc(safeUrl(cite.url))}" target="_blank" rel="noopener noreferrer">原文 ↗</a>` : ''}`).join('')}</details>` : '';
-    if (report?.answer) return `<section class="journal-guide-result" role="region" aria-label="小满的跟进回报"><h3>${report.run?.report?.outcome === 'partial' ? '部分结果' : '回报'}</h3><div class="journal-guide-answer" data-guide-report="${esc(item.id)}"></div><div class="actions"><button class="primary" data-j-action="guide-continue">继续跟进</button>${!done(item) ? `<button class="text" data-j-action="done" data-item="${esc(item.id)}">归档引导</button>` : ''}</div></section>${selected}`;
+    if (report?.answer) return `<section class="journal-guide-result" role="region" aria-label="Mori 的跟进回报"><h3>${report.run?.report?.outcome === 'partial' ? '部分结果' : '回报'}</h3><div class="journal-guide-answer" data-guide-report="${esc(item.id)}"></div><div class="actions"><button class="primary" data-j-action="guide-continue">继续跟进</button>${!done(item) ? `<button class="text" data-j-action="done" data-item="${esc(item.id)}">归档引导</button>` : ''}</div></section>${selected}`;
     if (report?.isBusy) return `<div class="journal-guide-working" role="status"><span class="journal-working-dot" aria-hidden="true"></span><p>${report.stage === 'uncertain' || report.stage === 'cancelling' ? '执行状态待核对，暂不重复提交。' : report.stage === 'queued' ? '等待接手…' : '分析中…'}</p></div><button class="text" data-j-action="guide-result">查看事项</button>${selected}`;
-    if (!guide?.sources?.length) return `<div class="actions"><button class="primary" data-j-action="guide-connect">连接资料</button><button class="text" data-j-action="guide-compose">记一件事</button></div>`;
+    if (!guide?.sources?.length) return `<div class="actions"><button class="primary" data-j-action="guide-compose">准备下一场会议</button><button class="text" data-j-action="guide-connect">连接资料</button></div>`;
     const waiting = !!guide.resultItemId;
-    return `${waiting ? `<p class="journal-guide-save" role="status">${report?.reason || (report?.stage === 'incomplete' ? '未取得回报，可以重试。' : '事项已保存，等待 Agent 连接。')}</p>` : ''}<div class="actions"><button class="primary" data-j-action="guide-follow" data-item="${esc(item.id)}" ${!source || done(item) ? 'disabled' : ''}>${waiting ? '重试' : '让小满跟进'}</button></div>${selected}`;
+    return `${waiting ? `<p class="journal-guide-save" role="status">${report?.reason || (report?.stage === 'incomplete' ? '未取得回报，可以重试。' : '事项已保存，等待 Agent 连接。')}</p>` : ''}<div class="actions"><button class="primary" data-j-action="guide-follow" data-item="${esc(item.id)}" ${!source || done(item) ? 'disabled' : ''}>${waiting ? '重试' : '让 Mori 跟进'}</button></div>${selected}`;
   }
   async function followGuide(itemId, target) {
     if (pending) return;
     const item = currentItem(itemId), token = selectionToken;
-    pending = true; setBusy(true); target?.setAttribute('aria-busy', 'true'); setStatus('正在交给小满…');
+    pending = true; setBusy(true); target?.setAttribute('aria-busy', 'true'); setStatus('正在交给 Mori…');
     try {
       const next = await request('journal/guide/follow', { scope: snapshot.scope, itemId, itemVersion: item.version, revision: snapshot.revision, requestId: window.PATransport.requestId() });
       if (!alive || token !== selectionToken) return;
@@ -1449,19 +1534,43 @@
   async function openGuide() {
     if (!root || pending || isEditing()) return;
     const token = selectionToken;
-    pending = true; setBusy(true); setStatus('正在打开认识小满…');
+    pending = true; setBusy(true);
     try {
-      const next = await request('journal/guide', { scope: snapshot.scope });
+      const result = await request(`journal/guide-sources?account=${encodeURIComponent(snapshot.scope.account)}&userId=${encodeURIComponent(snapshot.scope.userId)}`);
       if (!alive || token !== selectionToken) return;
-      pending = false; snapshot = next;
-      const item = next.items.find(value => value.source?.kind === 'guide');
-      tab = done(item) ? 'kept' : 'all'; search = ''; root.querySelector('#journal-search').value = '';
-      notebookSelection[tab] = item.id; workDraft(item).expanded = true; saveWorkState();
-      patchChrome(); patchBoard(); setStatus('');
-      if (!guideOnly) selectNotebookItem(item.id);
-    } catch (error) { if (alive && token === selectionToken) setStatus('暂时没能打开引导，请重试。已有记录不会改变。', true); }
+      const source = result.sources?.[0];
+      const draft = source ? `帮我跟进这条已读资料：${source.hook || source.title}。请重新核对来源，整理与我相关的关键事实、待确认的问题和下一步，保存有用的结果。\n\n${source.summary}\n${source.relevance}\n来源：${source.url || source.title}` : '请根据我提供的资料，整理关键事实、待决问题和下一步。先让我选择资料，缺少的信息明确留空。';
+      pending = false; setBusy(false);
+      await navigate?.({ page: 'chat', botId: 'xiaoman', draft, ...(source && { guideSourceId: source.id }) });
+    } catch (error) { if (alive && token === selectionToken) setStatus('暂时读不到可用资料，请重试，或直接到聊天交代一件事。', true); }
     finally { if (alive && token === selectionToken) { pending = false; setBusy(false); patchChrome(); } }
   }
+  function captureReadingPosition() {
+    saveWorkState();
+    return { itemId: notebookItem, tab, category, search, chapterView: chapterView(currentItem(notebookItem) || {}), scrollY: window.scrollY, leavesTop: root?.querySelector('.journal-leaves')?.scrollTop || 0, indexTop: root?.querySelector('#journal-bookmarks')?.scrollTop || 0, scope: scopeKey(snapshot?.scope) };
+  }
+  async function restoreReadingPosition(position) {
+    // A browser-history restore is weaker than a choice already made on the
+    // newly mounted page. Late reads must never turn that choice into another chapter.
+    if (!position || position.scope !== scopeKey(snapshot?.scope) || readingIntent) return;
+    const generation = selectionToken, intent = readingIntent;
+    if (position.itemId?.startsWith('conversation-') && !currentItem(position.itemId)) await loadConversations();
+    if (!alive || generation !== selectionToken || intent !== readingIntent || !currentItem(position.itemId)) return;
+    await openItem(position.itemId);
+    if (!alive || generation !== selectionToken || intent !== readingIntent) return;
+    tab = ['recent', 'all', 'kept'].includes(position.tab) ? position.tab : 'recent';
+    category = ['all', 'tasks', 'routines', 'reference'].includes(position.category) ? position.category : 'all';
+    search = typeof position.search === 'string' ? position.search.slice(0, 200) : '';
+    if (['output', 'conversation'].includes(position.chapterView)) chapterViews.set(position.itemId, position.chapterView);
+    notebookSelection[tab] = position.itemId; root.querySelector('#journal-search').value = search;
+    patchChrome(); patchBoard();
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    if (!alive || generation !== selectionToken || intent !== readingIntent) return;
+    root.querySelector('.journal-leaves').scrollTop = Number(position.leavesTop) || 0;
+    root.querySelector('#journal-bookmarks').scrollTop = Number(position.indexTop) || 0;
+    window.scrollTo({ top: Number(position.scrollY) || 0, behavior: 'instant' });
+  }
+
   function startDraft(text = '') {
     if (!root || pending || isEditing()) return;
     showEditor(undefined, root.querySelector('#journal-add'));
@@ -1473,5 +1582,5 @@
     editor.querySelector('#journal-title').focus();
   }
   window.addEventListener('xiaoman-surfaces-ready', () => { if (alive) patchBoard(); });
-  window.PAJournal = { mount, update, unmount, openConversation, openItem, openGuide, startDraft, isEditing, isBusy: () => pending || remoteReader?.isBusy() };
+  window.PAJournal = { mount, update, unmount, openConversation, openItem, openGuide, startDraft, captureReadingPosition, restoreReadingPosition, isEditing, isBusy: () => pending || remoteReader?.isBusy() };
 })();

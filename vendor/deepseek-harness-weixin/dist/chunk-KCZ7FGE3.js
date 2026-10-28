@@ -96,6 +96,12 @@ var WeixinControlServer = class {
       if (!controller.signal.aborted) controller.abort(new Error("Weixin CLI client disconnected"));
     };
     socket.once("close", finish);
+    // A timed-out UI request may close while an asynchronous reply is writing.
+    // Keep this connection failure local; it must not terminate the Agent host.
+    socket.on("error", () => {
+      finish();
+      socket.destroy();
+    });
     socket.on("data", (chunk) => {
       if (handled) return;
       input += chunk;
@@ -165,7 +171,7 @@ var WeixinControlServer = class {
     return loginId;
   }
   respond(socket, response) {
-    if (socket.destroyed) return;
+    if (socket.destroyed || socket.writableEnded) return;
     socket.end(`${JSON.stringify(response)}
 `);
   }

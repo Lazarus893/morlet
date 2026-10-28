@@ -1,8 +1,8 @@
 // The first task uses already authorized, evidenced journal material.
 // Personal content stays in the instance database, never in this template.
 export const GUIDE_ITEM = {
-  title: '和小满，跟进一件真实的事', kind: 'arrangement', taskType: 'decision',
-  note: '从近期已经读过的材料里选一条，小满会整理与你的关系、待核对的问题和可做的下一步。',
+  title: '和 Mori，跟进一件真实的事', kind: 'arrangement', taskType: 'decision',
+  note: '从近期已经读过的材料里选一条，Mori 会整理与你的关系、待核对的问题和可做的下一步。',
   steps: [], candidates: [], taskData: {},
 };
 
@@ -24,7 +24,7 @@ export function guideSources(db, state, scope, now, limit = 3) {
 }
 
 export function guideValues(sources) {
-  return { ...GUIDE_ITEM, candidates: sources.map(row => ({ id: row.id, name: (row.hook || row.title).slice(0, 200),
+  return { ...GUIDE_ITEM, ...(!sources.length && { note: '从下一场会议开始，把日程、相关邮件和文档整理成一份会前清单。你可以先修改交代，再发送。' }), candidates: sources.map(row => ({ id: row.id, name: (row.hook || row.title).slice(0, 200),
     detail: row.relevance.slice(0, 2000), selected: false })) };
 }
 
@@ -32,7 +32,7 @@ export function guideFollowupValues(source) {
   const evidence = source.evidence.map(cite => `来源摘录：${cite.quote}${cite.url ? '\n' + cite.url : ''}`).join('\n\n');
   return { title: `跟进：${source.hook || source.title}`.slice(0, 300), kind: 'arrangement', taskType: 'prep',
     note: `已读材料\n${source.summary}\n\n与你的关系\n${source.relevance}\n\n建议的下一步\n${source.suggestion}\n\n材料范围\n${source.coverage}\n读取于 ${new Date(source.observedAt).toISOString()}\n\n${evidence}`.slice(0, 10000),
-    steps: [{ id: 'review', label: '查看小满的核对结果，确定这件事是否值得继续', done: false },
+    steps: [{ id: 'review', label: '查看Mori 的核对结果，确定这件事是否值得继续', done: false },
       { id: 'next', label: source.suggestion.slice(0, 500), done: false }],
     taskData: { prep: { phases: [{ id: 'follow', label: '把这件事往前推进', stepIds: ['review', 'next'] }] },
       collection: { entries: [{ id: source.id, title: source.title, note: source.coverage, ...(source.url ? { url: source.url } : {}) }] } },

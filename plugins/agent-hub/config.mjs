@@ -25,6 +25,7 @@ export function hubConfig(root) {
       try { a.codex_connection = codexConnectionOptions(a); } catch { throw failure('INVALID_HUB_CONFIG'); }
       if (a.codex_connection.transport !== 'stdio' && !isAbsolute(a.workspace)) throw failure('INVALID_HUB_CONFIG');
     }
+    if (a.max_parallel_runs !== undefined && (!Number.isInteger(a.max_parallel_runs) || a.max_parallel_runs < 1 || a.max_parallel_runs > 4)) throw failure('INVALID_HUB_CONFIG');
     ids.add(a.id); a.workspace = resolve(root, a.workspace);
   }
   for (const [role, target] of Object.entries(value.roles)) if (!['conversation', 'observer', 'followup', 'journalDesigner'].includes(role) || target !== null && (typeof target !== 'string' || !target || target.length > 100)) throw failure('INVALID_HUB_CONFIG');

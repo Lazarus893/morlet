@@ -1,3 +1,4 @@
+import { ownerSession } from './owner-fixture.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
@@ -265,7 +266,7 @@ async function httpFixture(t) {
   app.server.listen(0, '127.0.0.1');
   await once(app.server, 'listening');
   const origin = `http://127.0.0.1:${app.server.address().port}`;
-  const home = await fetch(origin);
+  const home = await ownerSession(root, origin);
   const cookie = home.headers.get('set-cookie').split(';')[0];
   const get = async path => fetch(`${origin}/api/${path}`, { headers: { Cookie: cookie } }).then(response => response.json());
   const state = await get('state');
@@ -392,16 +393,21 @@ test('a late layout response cannot undo a domain budget write or publish its ol
   assert.equal(reread.design.status, 'idle');
 });
 
-async function hubFixture(t, { queuedDesign = false } = {}) {
+async function hubFixture(t, { queuedDesign = false, botRoom = false } = {}) {
   const { AgentHub } = await import('../plugins/agent-hub/store.mjs');
   const { journalTool } = await import('../plugins/agent-hub/journal.mjs');
   const { createJournalControl } = await import('../plugins/webui/journal-control.mjs');
   const f = await fixture(t);
   const hub = new AgentHub(f.root, { now: () => Date.parse(at) });
   const pairing = hub.pair({ label: 'Isolated journal agent' });
-  const conversation = hub.newConversation({ endpointId: pairing.endpointId });
+  if (botRoom) {
+    const { ensureBots, saveBot } = await import('../plugins/agent-hub/bots.mjs');
+    ensureBots(hub);
+    for (const id of ['xiaoman', 'research']) saveBot(hub, { id, version: hub.get('bot', id).version, values: { endpointId: pairing.endpointId } });
+  }
+  const conversation = botRoom ? hub.openRoom({ kind: 'group' }) : hub.newConversation({ endpointId: pairing.endpointId });
   const prompt = '请记下周三晚上两位的生日准备，费用还没核对。';
-  hub.submit({ conversationId: conversation.id, content: prompt, requestId: 'journal-fixture-input', source: { channel: 'weixin', account: 'a'.repeat(64), peer: 'fixture-owner' } });
+  hub.submit({ conversationId: conversation.id, content: prompt, requestId: 'journal-fixture-input', source: botRoom ? { channel: 'web' } : { channel: 'weixin', account: 'a'.repeat(64), peer: 'fixture-owner' } });
   const job = hub.poll(pairing.token, { runnerId: 'journal-fixture-runner' }).job;
   assert.ok(job);
   const settings = { revision: 'journal-fixture', installed: true, agentCommand: 'unused-fixture-command', socket: join(f.root, 'no-real-agent.sock'), config: { agent: { provider: 'dsh' }, im: { provider: 'weixin', access_policy: 'allowlist', allow_from: ['fixture-owner'] }, proactive: { enabled: false, timezone: 'Asia/Shanghai' } } };
@@ -418,6 +424,58 @@ async function hubFixture(t, { queuedDesign = false } = {}) {
   const call = (args, callId = 'journal-fixture-call', overrides = {}) => journalTool({ ...options, input: { runId: job.id, lease: job.lease, callId, arguments: args, ...overrides } });
   return { ...f, hub, journal, journalTool, pairing, conversation, job, settings, prompt, options, call };
 }
+
+test('a later explicitly linked matter in a fixed room cannot be duplicated, including after update and Bot handoff', async t => {
+  for (const historicalReceipt of [false, true]) {
+    const f = await hubFixture(t, { botRoom: true });
+    const { botTool } = await import('../plugins/agent-hub/bots.mjs');
+    const first = f.journal.store.ensureConversation(LOCAL, { conversationId: f.conversation.id, content: '准备事项 A', taskKey: 'fixture-a' });
+    f.hub.put('run', { ...f.hub.get('run', f.job.id), journalItemId: first.id });
+    f.hub.event(f.pairing.token, { runId: f.job.id, lease: f.job.lease, seq: 1, type: 'completed', value: '事项 A 已处理' });
+    const second = f.journal.store.ensureConversation(LOCAL, { conversationId: f.conversation.id, content: '准备事项 B', taskKey: 'fixture-b' });
+    f.hub.submit({ conversationId: f.conversation.id, content: '整理事项 B', journalItemId: second.id, requestId: 'fixture-b' });
+    const job = f.hub.poll(f.pairing.token, { runnerId: 'journal-fixture-runner' }).job;
+    if (historicalReceipt) { const old = f.hub.get('run', job.id); delete old.journalItemBound; f.hub.put('run', old); }
+    const call = (args, callId) => f.call(args, callId, { runId: job.id, lease: job.lease });
+    const duplicate = await call({ operation: 'add', revision: f.journal.store.snapshot(LOCAL).revision, values: { title: '事项 B 的重复篇' } }, 'duplicate-b');
+    assert.equal(duplicate.saved, false); assert.equal(duplicate.error, 'ITEM_ALREADY_EXISTS'); assert.equal(duplicate.itemId, second.id);
+    const read = await call({ operation: 'get', itemId: second.id });
+    const unchanged = await call({ ...read.writeTemplate, values: { note: read.item.note } }, 'noop-update-b');
+    assert.equal(unchanged.item.version, second.version);
+    assert.equal((await call({ operation: 'add', revision: unchanged.revision, values: { title: '空更新不能解除关联' } }, 'duplicate-after-noop')).error, 'ITEM_ALREADY_EXISTS');
+    const updated = await call({ ...read.writeTemplate, values: { note: '更新 B 的真实材料' } }, 'update-b');
+    assert.equal(updated.saved, true);
+    const afterUpdate = await call({ operation: 'add', revision: updated.revision, values: { title: '更新后也不能新增副本' } }, 'duplicate-after-update');
+    assert.equal(afterUpdate.error, 'ITEM_ALREADY_EXISTS', 'a successful update receipt is not evidence that this task created its bound matter');
+    botTool({ hub: f.hub, token: f.pairing.token, input: { runId: job.id, lease: job.lease, callId: 'handoff-b', arguments: { operation: 'delegate', botIds: ['research'], instruction: '继续整理 B 的材料' } } });
+    f.hub.event(f.pairing.token, { runId: job.id, lease: job.lease, seq: 1, type: 'completed', value: '由阿探接着整理' });
+    const child = f.hub.poll(f.pairing.token, { runnerId: 'journal-fixture-runner' }).job;
+    assert.equal(child.rootRunId, job.id); assert.equal(child.journalItemId, second.id);
+    const childDuplicate = await f.call({ operation: 'add', revision: updated.revision, values: { title: '交接后不应创建第三篇' } }, 'child-duplicate', { runId: child.id, lease: child.lease });
+    assert.equal(childDuplicate.error, 'ITEM_ALREADY_EXISTS'); assert.equal(childDuplicate.itemId, second.id);
+    assert.equal(childDuplicate.writeTemplate.itemVersion, updated.item.version);
+    assert.equal(f.journal.store.snapshot(LOCAL).items.length, 2);
+  }
+});
+
+test('an unbound task may create multiple matters before and after a Bot handoff with inferred current item', async t => {
+  for (const historicalReceipt of [false, true]) {
+    const f = await hubFixture(t, { botRoom: true });
+    const { botTool } = await import('../plugins/agent-hub/bots.mjs');
+    const first = await f.call({ operation: 'add', revision: 0, values: { title: '旅行准备' } }, 'trip');
+    const second = await f.call({ operation: 'add', revision: first.revision, values: { title: '行李清单' } }, 'luggage');
+    assert.equal(first.saved, true); assert.equal(second.saved, true); assert.notEqual(first.item.id, second.item.id);
+    if (historicalReceipt) { const old = f.hub.get('run', f.job.id); delete old.journalItemBound; f.hub.put('run', old); }
+    botTool({ hub: f.hub, token: f.pairing.token, input: { runId: f.job.id, lease: f.job.lease, callId: 'handoff-trip', arguments: { operation: 'delegate', botIds: ['research'], instruction: '另整理一篇目的地资料' } } });
+    f.hub.event(f.pairing.token, { runId: f.job.id, lease: f.job.lease, seq: 1, type: 'completed', value: '两篇已保存，继续整理目的地' });
+    const child = f.hub.poll(f.pairing.token, { runnerId: 'journal-fixture-runner' }).job;
+    assert.equal(child.rootRunId, f.job.id); assert.equal(child.journalItemId, first.item.id);
+    if (historicalReceipt) { const old = f.hub.get('run', child.id); delete old.journalItemBound; f.hub.put('run', old); }
+    const third = await f.call({ operation: 'add', revision: second.revision, values: { title: '目的地资料' } }, 'destination', { runId: child.id, lease: child.lease });
+    assert.equal(third.saved, true, 'a handoff hint cannot introduce a new single-matter restriction');
+    assert.equal(f.journal.store.snapshot(LOCAL).items.length, 3);
+  }
+});
 
 test('paired agent previews and adopts the same atomic parameter contract without manual ledger changes', async t => {
   const f = await hubFixture(t);
@@ -747,6 +805,7 @@ test('a UTC server uses the configured Shanghai day for a bare habit through rea
     import { once } from 'node:events';
     import { join } from 'node:path';
     import { createWebUI } from ${JSON.stringify(module)};
+    import { ownerSession } from ${JSON.stringify(new URL('./owner-fixture.mjs', import.meta.url).href)};
     const root = ${JSON.stringify(f.root)};
     const settings = { revision:'habit-midnight-fixture',installed:true,runtimeInstalled:true,socket:join(root,'unused.sock'),pending:[],capabilities:[],config:{owner:'测试',agent:{provider:'dsh'},im:{provider:'disabled',access_policy:'allowlist',allow_from:[]},proactive:{enabled:false,timezone:'Asia/Shanghai'}} };
     const app = createWebUI({root,helper:async()=>settings,rpc:async()=>({kind:'pa',data:{protocol:1,users:[],journalAvailable:false,configRevision:settings.revision}})});
@@ -754,7 +813,7 @@ test('a UTC server uses the configured Shanghai day for a bare habit through rea
     app.server.listen(0,'127.0.0.1'); await once(app.server,'listening');
     try {
       const origin='http://127.0.0.1:'+app.server.address().port;
-      const home=await fetch(origin),cookie=home.headers.get('set-cookie').split(';')[0];
+      const home=await ownerSession(root, origin),cookie=home.headers.get('set-cookie').split(';')[0];
       const read=async()=>fetch(origin+'/api/state',{headers:{Cookie:cookie}}).then(r=>r.json());
       const csrf=(await read()).data.csrf;
       const post=async body=>fetch(origin+'/api/journal',{method:'POST',headers:{Cookie:cookie,Origin:origin,'Content-Type':'application/json','X-PA-CSRF':csrf},body:JSON.stringify(body)}).then(r=>r.json());

@@ -69,8 +69,11 @@ export async function runCodex(config, prompt, context) {
     if (method === 'turn/completed') {
       if (p.turn?.status !== 'completed') {
         const detail = p.turn?.error, info = detail?.codexErrorInfo;
+        const exhausted = info?.responseTooManyFailedAttempts || info?.response_too_many_failed_attempts;
+        const rateLimited = ['usageLimitExceeded', 'rateLimitExceeded'].includes(info) ||
+          (exhausted?.httpStatusCode ?? exhausted?.http_status_code) === 429 || /\b429\b.*Too Many Requests/i.test(String(detail?.message || ''));
         const code = info === 'unauthorized' ? 'AGENT_AUTH_REQUIRED' :
-          ['usageLimitExceeded', 'rateLimitExceeded'].includes(info) ? 'AGENT_RATE_LIMITED' :
+          rateLimited ? 'AGENT_RATE_LIMITED' :
           /model.{0,160}(?:not supported|not available|not found)|unsupported model/i.test(String(detail?.message || '')) ? 'AGENT_MODEL_UNAVAILABLE' :
           'AGENT_TURN_' + String(p.turn?.status || 'FAILED').toUpperCase();
         proc.fail(new Error(code));

@@ -1,3 +1,5 @@
+import { resolveBot, mentionedBots } from './bots.mjs';
+import { attachmentForSend, attachmentPrompt } from './attachments.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { failure } from './store.mjs';
 import { hubConfig } from './config.mjs';
@@ -168,12 +170,15 @@ export function recordFirstTaskReceipt(hub, candidate, receipt, input) {
   });
 }
 
-function userRun(hub, flow, content, endpointId, requestId, mode) {
+function userRun(hub, flow, content, endpointId, requestId, mode, botId) {
+  const mentions = mentionedBots(hub, content);
+  botId = mentions[0] || botId || flow.botId;
+  if (botId) endpointId = resolveBot(hub, botId).endpoint.id;
   const conversation = flow.conversationId ? hub.conversation(flow.conversationId) : hub.newConversation({ endpointId, title: '第一件生活事' });
   if (conversation.ownerId !== OWNER || hub.all('binding').some(binding => binding.conversationId === conversation.id)) throw failure('FORBIDDEN');
-  const submitted = hub.submit({ conversationId: conversation.id, endpointId, content, requestId: 'first-task:' + flow.id + ':' + requestId, source: { channel: 'web' } });
+  const submitted = hub.submit({ conversationId: conversation.id, endpointId, ...(botId && { botId }), content, requestId: 'first-task:' + flow.id + ':' + requestId, source: { channel: 'web' } });
   hub.put('run', { ...submitted.run, firstTaskId: flow.id, firstTaskMode: mode });
-  return { conversationId: conversation.id, currentRunId: submitted.run.id, endpointId, runIds: [...flow.runIds, submitted.run.id], draft: '' };
+  return { conversationId: conversation.id, currentRunId: submitted.run.id, endpointId: submitted.run.endpointId, ...(botId && { botId }), runIds: [...flow.runIds, submitted.run.id], draft: '' };
 }
 
 function availableEndpoint(hub, preferred) {
@@ -218,13 +223,13 @@ function viewFlow(hub, flow, journal) {
   let nextAction;
   if (run?.status === 'uncertain') nextAction = { kind: 'check', label: '核对办理状态', detail: '执行结果尚未确认；不会自动重新提交。先核对状态，再确认停止或等待恢复。' };
   else if (run?.status === 'cancelling') nextAction = { kind: 'wait', label: '正在等待停止', detail: '原执行尚未确认停止，暂不开始下一轮。' };
-  else if (isBusy) nextAction = { kind: 'wait', label: approvals.length ? '需要你的批准' : stage === 'saving' ? '正在保存已确认的计划' : '小满正在整理', detail: '可以先写补充，当前办理结束后再发送。' };
-  else if (stage === 'awaiting_answer') nextAction = { kind: 'answer', label: '告诉小满', detail: '可以用一句话回答，不必逐个填写。' };
+  else if (isBusy) nextAction = { kind: 'wait', label: approvals.length ? '需要你的批准' : stage === 'saving' ? '正在保存已确认的计划' : 'Mori 正在整理', detail: '可以先写补充，当前办理结束后再发送。' };
+  else if (stage === 'awaiting_answer') nextAction = { kind: 'answer', label: '告诉 Mori', detail: '可以用一句话回答，不必逐个填写。' };
   else if (stage === 'awaiting_confirmation') nextAction = { kind: 'confirm', label: flow.itemIds.length ? '确认更新这份计划' : '确认并记入手账' };
   else if (stage === 'recorded') nextAction = { kind: 'view', label: itemRecords.length ? '查看这件事' : '核对手账记录', detail: '已记录计划；实际生日准备尚未因此完成。' };
   else if (stage === 'blocked') nextAction = { kind: 'answer', label: '补充后继续', detail: flow.blocked?.nextAction || '' };
   else if (['failed', 'cancelled', 'incomplete'].includes(stage)) nextAction = { kind: 'retry', label: '接着处理这件事', detail: stage === 'incomplete' ? '这轮已结束，但没有留下问题、可确认计划或保存回执，需要继续核对。' : '保留交代和已有记录，由你决定是否继续。' };
-  else nextAction = { kind: 'start', label: '交给小满' };
+  else nextAction = { kind: 'start', label: '交给 Mori' };
   return { ...Object.fromEntries(['id', 'version', 'draft', 'endpointId', 'conversationId', 'currentRunId', 'runIds', 'questions', 'questionMessage', 'proposal', 'confirmedProposal', 'itemIds', 'blocked', 'lastRequest', 'lastDraftRequest', 'createdAt', 'updatedAt'].map(key => [key, copy(flow[key] ?? null)])), stage, followupAnswer, isBusy, itemRecords, runSummary: cleanRun(run), relatedRuns: flow.runIds.map(id => cleanRun(hub.get('run', id))).filter(Boolean), messages: hub.all('message').filter(message => message.conversationId === flow.conversationId).map(({ id, role, text, runId, createdAt }) => ({ id, role, text, runId, createdAt })), approvals, design, nextAction };
 }
 
@@ -311,25 +316,31 @@ export function createFirstTaskFlow({ hub }) {
       questions: [], questionMessage: '', proposal: null, proposalSequence: 0, confirmedProposal: null,
       confirmations: [], savedProposalVersion: null, itemIds: [item.id], receipt: null, receipts: [],
       blocked: null, createdAt: hub.now(), updatedAt: hub.now() });
-    const content = `我在认识小满的引导里选中了这件真实事项，请继续帮我分析。先读取手账事项 ${item.id} 的当前内容。只处理这一件事，依据已保存的正文、来源摘录和覆盖范围，给出：1. 具体变化；2. 为什么值得我关注；3. 一个现在可做的下一步，以及仍需核实的事实。把已有材料的整理与本轮新核实分清。如果已连接的只读资料工具能够定位原始邮件或仓库，可以有界核对；不能访问则基于现有材料明确说明。无需追问，不生成待确认提案，不修改记录，不外发、不安排定时监控。最后直接向我汇报分析结果并提交完成报告；资料不足时给出部分结果和原因。`;
+    const content = `我在认识 Mori 的引导里选中了这件真实事项，请继续帮我分析。先读取手账事项 ${item.id} 的当前内容。只处理这一件事，依据已保存的正文、来源摘录和覆盖范围，给出：1. 具体变化；2. 为什么值得我关注；3. 一个现在可做的下一步，以及仍需核实的事实。把已有材料的整理与本轮新核实分清。如果已连接的只读资料工具能够定位原始邮件或仓库，可以有界核对；不能访问则基于现有材料明确说明。无需追问，不生成待确认提案，不修改记录，不外发、不安排定时监控。最后直接向我汇报分析结果并提交完成报告；资料不足时给出部分结果和原因。`;
     flow = bump(hub, flow, { ...userRun(hub, flow, content, endpointId, requestId, 'followup'),
       stage: 'queued', blocked: null, followupRead: null, lastGuideRequest: requestId });
     return { flowId: id, runId: flow.currentRunId };
   });
-  const continueGuide = ({ conversationId, content, endpointId, requestId }) => hub.transaction(() => {
+  const continueGuide = ({ conversationId, content, endpointId, botId, requestId, attachmentId }) => hub.transaction(() => {
     const found = hub.all(KIND).find(flow => flow.guideItemId && flow.conversationId === conversationId);
     if (!found) return null;
     const flow = flowForId(hub, found.id);
-    const input = { conversationId, content: str(content), endpointId: endpointId === undefined ? null : identifier(endpointId), requestId: str(requestId, 200) };
+    const input = { conversationId, ...(botId && { botId: identifier(botId) }), content: str(content), endpointId: endpointId === undefined ? null : identifier(endpointId), requestId: str(requestId, 200), ...(attachmentId && { attachmentId }) };
     const key = 'guide-send:' + flow.id + ':' + digest(input.requestId), fingerprint = digest(input), previous = hub.get('firstTaskRequest', key);
     if (previous) { if (previous.digest !== fingerprint) throw failure('CONFLICT'); return copy(previous.result); }
+    const attachment = attachmentId ? attachmentForSend(hub, conversationId, attachmentId) : null;
     idle(hub, flow);
     // This is a new explicit Web message in the same guarded, read-only flow.
     // Keep the independent first-task draft and every earlier run/report intact.
     const endpoint = availableEndpoint(hub, input.endpointId || flow.endpointId);
-    const fields = userRun(hub, flow, input.content, endpoint, 'continue-' + digest(input.requestId), 'followup');
+    const fields = userRun(hub, flow, input.content, endpoint, 'continue-' + digest(input.requestId), 'followup', input.botId);
     bump(hub, flow, { ...fields, stage: 'queued', blocked: null, followupRead: null });
-    const run = hub.get('run', fields.currentRunId), result = { message: hub.get('message', run.messageId), run };
+    let run = hub.get('run', fields.currentRunId), message = hub.get('message', run.messageId);
+    if (attachment) {
+      run = hub.put('run', { ...run, attachmentIds: [attachment.id], prompt: run.prompt + attachmentPrompt(attachment) });
+      message = hub.put('message', { ...message, attachments: [{ id: attachment.id, name: attachment.name }] });
+    }
+    const result = { message, run };
     hub.put('firstTaskRequest', { id: key, digest: fingerprint, result }); return copy(result);
   });
   const context = candidate => {

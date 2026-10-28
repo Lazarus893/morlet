@@ -1,3 +1,4 @@
+import { ownerSession } from './owner-fixture.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -12,7 +13,7 @@ async function fixture(t) {
   const app = createWebUI({ root, helper: async () => ({ revision: 'test', socket: join(root, 'offline.sock'), pending: [], capabilities: [], config: { agent: { provider: 'dsh' }, im: { provider: 'disabled' }, proactive: { enabled: false } } }), rpc: async () => { throw new Error('offline'); } });
   app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
   const origin = `http://127.0.0.1:${app.server.address().port}`;
-  const home = await fetch(origin), cookie = home.headers.get('set-cookie').split(';')[0];
+  const home = await ownerSession(root, origin), cookie = home.headers.get('set-cookie').split(';')[0];
   const initial = await fetch(origin + '/api/state', { headers: { Cookie: cookie } }).then(r => r.json());
   assert.equal(initial.ok, true);
   const request = async (route, input, headers = {}, authenticated = true) => {

@@ -76,10 +76,10 @@ test('real DSH sessions, shared tools, permissions and Codex coexist without a l
   assert.equal(hub.all('run')[0].status, 'completed', log.slice(-14000));
   assert.equal(hub.all('task')[0]?.title, '原生 DSH 共享待办', log.slice(-10000));
   const session = hub.all('session')[0].nativeSessionId;
-  // A busy host may enqueue the legitimate 3-second acknowledgement before the final reply.
+  // IM reception is quiet; only the actual result is delivered.
   const inboundRun = hub.all('run')[0];
   const initialDeliveries = hub.all('delivery');
-  assert.ok(initialDeliveries.length >= 1);
+  assert.equal(initialDeliveries.length, 1);
   assert.ok(initialDeliveries.every(d => hub.get('message', d.messageId)?.runId === inboundRun.id));
   for (const delivery of initialDeliveries) { await channel.flush(); assert.equal(hub.get('delivery', delivery.id).state, 'sent'); }
   assert.equal(sent.length, initialDeliveries.length);
@@ -88,21 +88,21 @@ test('real DSH sessions, shared tools, permissions and Codex coexist without a l
   const codeRun = hub.submit({ conversationId: codeConversation.id, endpointId: codex.endpointId, content: '独立工作', requestId: 'codex-one' }).run;
   const job = hub.poll(codex.token, { runnerId: 'codex-fixture' }).job;
   hub.event(codex.token, { runId: codeRun.id, lease: job.lease, seq: 1, type: 'approval', value: { id: 'codex-approval', toolName: 'test', reason: 'Hold the Codex lane' } });
-  const webRun = hub.submit({ conversationId: c.id, endpointId: 'dsh', content: '继续聊天', requestId: 'web-two' }).run;
+  const webRun = hub.submit({ conversationId: c.id, botId: 'xiaoman', content: '继续聊天', requestId: 'web-two' }).run;
   await until(() => hub.all('run').at(-1)?.status === 'completed');
   assert.equal(hub.get('run', codeRun.id).status, 'waiting_approval');
   assert.equal(hub.all('session').find(s => s.endpointId === 'dsh').nativeSessionId, session);
   assert.match(hub.all('message').at(-1).text, /会话轮数 2/);
   assert.equal(hub.all('delivery').some(d => hub.get('message', d.messageId)?.runId === webRun.id), false, 'Web creates no channel delivery');
   await channel.flush(); assert.equal(sent.length, initialDeliveries.length, 'Web does not broadcast to Weixin');
-  hub.submit({ conversationId: c.id, endpointId: 'dsh', content: '请求审批', requestId: 'dsh-approval' });
+  hub.submit({ conversationId: c.id, botId: 'xiaoman', content: '请求审批', requestId: 'dsh-approval' });
   await until(() => hub.all('approval').some(a => a.id !== 'codex-approval' && a.state === 'pending'));
   const approval = hub.all('approval').find(a => a.id !== 'codex-approval');
   hub.decide({ approvalId: approval.id, allow: false, conversationId: c.id });
   await until(() => hub.all('run').at(-1).status === 'completed');
   assert.match(hub.all('message').at(-1).text, /ACTION_NOT_APPROVED|APPROVAL_REJECTED|APPROVAL_REQUIRED|rejected/i);
   assert.equal(hub.get('approval', 'codex-approval').state, 'pending');
-  const allowedRun = hub.submit({ conversationId: c.id, endpointId: 'dsh', content: '允许本次审批', requestId: 'dsh-allow' }).run;
+  const allowedRun = hub.submit({ conversationId: c.id, botId: 'xiaoman', content: '允许本次审批', requestId: 'dsh-allow' }).run;
   await until(() => hub.all('approval').some(a => a.runId === allowedRun.id && a.state === 'pending'));
   const allowedApproval = hub.all('approval').find(a => a.runId === allowedRun.id);
   hub.decide({ approvalId: allowedApproval.id, allow: true, conversationId: c.id });
@@ -110,9 +110,9 @@ test('real DSH sessions, shared tools, permissions and Codex coexist without a l
   assert.equal(hub.all('task')[0].status, 'cancelled');
   hub.taskAction({ operation: 'reopen', taskId: hub.all('task')[0].id, version: hub.all('task')[0].version, requestId: 'reopen-fixture' });
 
-  const cancelledRun = hub.submit({ conversationId: c.id, endpointId: 'dsh', content: '等待审批时取消', requestId: 'dsh-cancel-approval' }).run;
+  const cancelledRun = hub.submit({ conversationId: c.id, botId: 'xiaoman', content: '等待审批时取消', requestId: 'dsh-cancel-approval' }).run;
   await until(() => hub.all('approval').some(a => a.runId === cancelledRun.id && a.state === 'pending'));
-  const following = hub.submit({ conversationId: c.id, endpointId: 'dsh', content: '取消后继续聊天', requestId: 'dsh-after-cancel' }).run;
+  const following = hub.submit({ conversationId: c.id, botId: 'xiaoman', content: '取消后继续聊天', requestId: 'dsh-after-cancel' }).run;
   hub.cancel(cancelledRun.id);
   assert.equal(hub.get('run', cancelledRun.id).status, 'cancelling');
   assert.equal(hub.get('run', following.id).status, 'queued');
@@ -123,18 +123,18 @@ test('real DSH sessions, shared tools, permissions and Codex coexist without a l
   assert.equal(hub.get('run', codeRun.id).status, 'waiting_approval', 'DSH cancellation cannot affect Codex');
   const artifactPath = join(root, '.runtime/workspace/native-result.md');
   await writeFile(artifactPath, '# Native DSH fixture\n');
-  const reported = hub.submit({ conversationId: c.id, endpointId: 'dsh', content: '汇报测试产物', requestId: 'native-report' }).run;
+  const reported = hub.submit({ conversationId: c.id, botId: 'xiaoman', content: '汇报测试产物', requestId: 'native-report' }).run;
   await until(() => hub.get('run', reported.id).status === 'completed');
   const report = hub.snapshot().runs.find(r => r.id === reported.id).report;
   assert.equal(report?.outcome, 'completed', log.slice(-12000));
   assert.equal(report.artifacts[0].path, artifactPath);
-  const health = hub.submit({ conversationId: c.id, endpointId: 'dsh', content: '查询通道状态', requestId: 'native-status' }).run;
+  const health = hub.submit({ conversationId: c.id, botId: 'xiaoman', content: '查询通道状态', requestId: 'native-status' }).run;
   await until(() => ['completed', 'failed'].includes(hub.get('run', health.id).status));
   assert.equal(hub.get('run', health.id).status, 'completed');
   assert.match(hub.all('message').at(-1).text, /imessage/);
   assert.match(hub.all('message').at(-1).text, /bridge_heartbeat/);
   for (const [content, suffix, status] of [['读取完整网页', 'complete', 'completed'], ['读取截断网页', 'incomplete', 'incomplete']]) {
-    const run = hub.submit({ conversationId: c.id, endpointId: 'dsh', content, requestId: 'native-web-' + suffix }).run;
+    const run = hub.submit({ conversationId: c.id, botId: 'xiaoman', content, requestId: 'native-web-' + suffix }).run;
     await until(() => ['completed', 'failed'].includes(hub.get('run', run.id).status));
     assert.equal(hub.get('run', run.id).status, 'completed', log.slice(-12000));
     const receipt = hub.all('nativeSourceReceipt').find(row => row.runId === run.id);

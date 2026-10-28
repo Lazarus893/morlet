@@ -1,3 +1,4 @@
+import { ownerSession } from './owner-fixture.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, readFileSync, statSync } from 'node:fs';
@@ -67,7 +68,7 @@ test('desktop pet token is outbound only and owner pairing cannot be called with
   t.after(async () => { app.server.closeAllConnections(); await app.shutdown(); rmSync(root, { recursive: true, force: true }); });
   const origin = 'http://127.0.0.1:' + app.server.address().port;
   const endpoint = app.hub.pair({ provider: 'codex', label: 'test' }), conversation = app.hub.newConversation({ endpointId: endpoint.endpointId });
-  const home = await fetch(origin), cookie = home.headers.get('set-cookie').split(';')[0];
+  const home = await ownerSession(root, origin), cookie = home.headers.get('set-cookie').split(';')[0];
   const state = await fetch(origin + '/api/state', { headers: { Cookie: cookie } }).then(r => r.json());
   const ownerHeaders = { Cookie: cookie, Origin: origin, 'X-PA-CSRF': state.data.csrf, 'Content-Type': 'application/json' };
   const input = { operation: 'pair-desktop-pet', label: '桌面小满', petId: 'main', conversationId: conversation.id };
@@ -118,7 +119,7 @@ test('official pet API checks inner ok and state counter; no redirect or arbitra
   };
   const c = createPetClient({ petId: 'main' }, { discover: async () => 'http://127.0.0.1:1234', request });
   const origin = await c.probe(); assert.deepEqual(await c.broadcast(origin, 'hello'), { state: 'failed' });
-  accept = true; const result = await c.broadcast(origin, 'hello'); assert.equal(result.state, 'submitted'); assert.equal(text, '小满 · hello');
+  accept = true; const result = await c.broadcast(origin, 'hello'); assert.equal(result.state, 'submitted'); assert.equal(text, 'Morlet · hello');
   await assert.rejects(petRequest('https://example.test', '/state'), /INVALID_CONFIG/);
   await assert.rejects(petRequest(origin, '/chat'), /INVALID_ROUTE/);
   let redirect;

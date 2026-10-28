@@ -12,7 +12,14 @@ try {
   if (process.platform !== 'darwin') throw new Error('MACOS_REQUIRED');
   release = acquireMessageCompanionLock(config);
   companion = new IMessageCompanion({ config, statePath: configPath + '.state.sqlite' });
-  await companion.prepare();
+  while (!controller.signal.aborted) {
+    try { await companion.prepare(); break; }
+    catch (error) {
+      if (error.code !== 'IMESSAGE_DATABASE_CHANGED') throw error;
+      await delay(5000, undefined, { signal: controller.signal }).catch(() => {});
+    }
+  }
+  controller.signal.throwIfAborted();
   const watch = companion.watch(controller.signal).catch(error => { stoppedBy = error.code || 'IMESSAGE_WATCH_STOPPED'; console.error(stoppedBy); controller.abort(); });
   let offline = false;
   while (!controller.signal.aborted) {

@@ -77,9 +77,12 @@
     const reason = errors[routine.error];
     const detail = reason ? `：${reason}` : '';
     const headline = last === 'failed' && reason ? reason : status + detail;
-    const summary = problems.has(last) && typeof routine.lastSummary === 'string' && routine.lastSummary.trim() ? routine.lastSummary : '';
+    const unverified = ['ROUTINE_SOURCE_INCOMPLETE', 'ROUTINE_SOURCE_UNVERIFIED'].includes(routine.error);
+    const summary = unverified ? '本次结论未通过读取核验，未更新产物。补读完成后才能采用。' : problems.has(last) && typeof routine.lastSummary === 'string' && routine.lastSummary.trim() ? routine.lastSummary : '';
+    const gaps = routine.lastRun?.gaps || [];
+    const gapList = gaps.length ? `<ul>${gaps.map(gap => `<li><span>${esc(({ failed: '读取失败', incomplete: '内容未读完整', unverified: '缺少读取凭证' })[gap.status] || '读取待核实')}</span> · <span>${esc(gap.operation || gap.source)}</span></li>`).join('')}</ul>` : '';
     const time = checked ? `<time>${esc(checked)}</time>` : '';
-    const statusContent = summary ? `<details class="journal-routine-result-details" id="routine-result-${esc(routine.id)}"><summary>${time}<span>${esc(headline)}</span></summary><div class="journal-routine-rule-body"><p>${esc(summary)}</p></div></details>` : `${time}<span>${esc(headline)}</span>`;
+    const statusContent = summary || gapList ? `<details class="journal-routine-result-details" id="routine-result-${esc(routine.id)}"><summary>${time}<span>${esc(headline)}</span></summary><div class="journal-routine-rule-body">${summary ? `<p>${!unverified ? '执行端说明：' : ''}${esc(summary)}</p>` : ''}${gapList}</div></details>` : `${time}<span>${esc(headline)}</span>`;
     const unresolved = !!draft.routineSubmission;
     const retry = unresolved && !draft.routineBusy;
     const scopeError = routine.scopeStatus?.error || routine.scopeStatus?.blocked;
@@ -94,7 +97,7 @@
         </details>
         ${routine.endedAt ? '' : `<div class="journal-routine-actions">${button(routine.enabled ? 'pause' : 'resume', routine.enabled ? '暂停' : '恢复', unresolved)}${button('run_now', busy ? labels[last] : '立即检查', busy || unresolved || !routine.enabled || !!scopeError, 'outline')}</div>`}
       </div>
-      ${status && !scopeError ? `<div class="journal-routine-status${problem ? ' journal-routine-problem' : ''}" role="status">${statusContent}${problem ? connectionErrors.has(routine.error) ? button('connect', '检查连接') : button('edit', last === 'waiting_approval' ? '查看请求' : '查看执行') : ''}</div>` : ''}
+      ${status && !scopeError ? `<div class="journal-routine-status${problem ? ' journal-routine-problem' : ''}" role="status">${statusContent}${problem ? connectionErrors.has(routine.error) ? button('connect', '检查连接') : last === 'failed' ? button('recover', '处理阻碍') : button('edit', last === 'waiting_approval' ? '查看请求' : '核对执行') : ''}</div>` : ''}
       ${scopeMessage ? `<p class="journal-routine-problem" role="status">${scopeMessage}${scopeError === 'ROUTINE_SCOPE_EMPTY' ? button('edit', '调整来源与规则') : button('connect', '检查连接')}</p>` : ''}
       ${notice && notice.state !== 'journal' && !['cancelled', 'expired'].includes(notice.state) ? `<p class="journal-routine-notice" role="status">${esc(noticeLabel(notice))}${notice.blocked === 'channel_offline' ? button('connect', '检查连接') : ''}</p>` : ''}
       ${schedulerError ? '<p class="journal-routine-problem" role="alert">巡查调度暂不可用，请稍后重试检查。</p>' : ''}

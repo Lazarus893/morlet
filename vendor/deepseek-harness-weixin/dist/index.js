@@ -1604,7 +1604,7 @@ var WeixinHarnessBridge = class {
       }
       return;
     }
-    if (this.hub && await this.hub.receive({ peer: sender, text: messageText(message), requestId: messageKey(message), contextToken: message.context_token,
+    if (this.hub && await this.hub.receive({ peer: sender, text: messageText(message), requestId: messageKey(message), sourceMessageId: messageKey(message), occurredAt: message.create_time_ms, contextToken: message.context_token,
       attachments: (message.item_list || []).some(item => item.type !== MessageItemType.TEXT) })) return;
     if (this.seen.hasOrAdd(messageKey(message))) return;
     const command = commandText(message);

@@ -1,3 +1,4 @@
+import { ownerSession } from './owner-fixture.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, mkdtemp, rm } from 'node:fs/promises';
@@ -377,8 +378,8 @@ test('real HTTP serves only the public onboarding resources; public JavaScript d
   t.after(async () => { app.server.closeAllConnections(); await app.shutdown(); await rm(root, { recursive: true, force: true }); });
   const origin = `http://127.0.0.1:${app.server.address().port}`;
   const boundedFetch = (url, options = {}) => fetch(url, { ...options, signal: AbortSignal.timeout(5000) });
-  const home = await boundedFetch(origin), cookie = home.headers.get('set-cookie').split(';')[0];
-  const html = await home.text();
+  const home = await ownerSession(root, origin), cookie = home.headers.get('set-cookie').split(';')[0];
+  const html = await boundedFetch(origin, { headers: { Cookie: cookie } }).then(r => r.text());
   assert.match(html, /onboarding\.js/);
   assert.match(html, /onboarding\.css/);
   for (const path of ['/onboarding.js', '/onboarding.css']) {

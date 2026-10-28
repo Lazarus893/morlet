@@ -47,6 +47,7 @@ case "$ACTION" in
     ;;
   intent) exec python3 "$ROOT/bin/intent_route.py" "$@" ;;
   status) exec python3 "$ROOT/bin/status_report.py" "$@" ;;
+  owner) exec node "$ROOT/scripts/owner.mjs" "$@" ;;
   web) exec node "$ROOT/scripts/webui.mjs" "$@" ;;
   bridge) exec node "$ROOT/scripts/connection-companion.mjs" "$@" ;;
   proactive) exec node "$ROOT/scripts/proactive.mjs" "$@" ;;

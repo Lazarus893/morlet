@@ -16,6 +16,7 @@
     return arr(projection.actions).some(a => typeof a === 'string' ? a === action : a.action === action && a.enabled !== false);
   }
   function button(p, action, label, payload = {}, options = {}) {
+    if (p.dashboard && ['schedule', 'reserve', 'quantity', 'save-draft', 'record-event', 'record-reminder', 'set-servings', 'add-entry', 'save-reflection', 'save-memory', 'set-owner'].includes(action)) return '';
     const suffix = payload.entryId || payload.stepId || payload.slotId || payload.candidateId || payload.personId || payload.optionId || payload.requestId || payload.date || options.key || '';
     const local = action.startsWith('ui-');
     const disabled = options.disabled || !local && !allowed(p, action);
@@ -23,12 +24,18 @@
     const content = options.lines ? `<span class="jw-button-date">${esc(options.lines[0])}</span><span class="jw-button-state">${esc(options.lines[1])}</span>` : options.choice ? `<span class="journal-choice-content"><span class="journal-choice-indicator" aria-hidden="true"></span><span class="journal-choice-copy"><span>${esc(label)}</span>${options.choiceMeta ? `<span class="journal-choice-meta">${esc(options.choiceMeta)}</span>` : ''}</span></span>` : esc(label);
     return `<${tag} type="button" id="jw-${esc(p.instanceId || p.itemId)}-${esc(p.kind)}-${esc(action)}-${esc(suffix)}" data-j-action="widget" data-w-action="${esc(action)}" data-w-kind="${esc(p.kind)}" data-item="${esc(p.itemId)}" data-w-payload="${esc(JSON.stringify(payload))}" ${options.primary ? (tag === 'wa-button' ? 'variant="brand" appearance="accent"' : 'class="primary"') : (tag === 'wa-button' ? 'appearance="outlined"' : 'class="outline"')} ${disabled ? 'disabled' : ''} ${options.pressed !== undefined ? `aria-pressed="${options.pressed}"` : ''}>${content}</${tag}>`;
   }
-  const input = (p, key, label, value, type = 'text', extra = '') => `<label class="jw-input" for="jw-${esc(p.instanceId || p.itemId)}-${esc(p.kind)}-${esc(key)}"><span>${esc(label)}</span><input id="jw-${esc(p.instanceId || p.itemId)}-${esc(p.kind)}-${esc(key)}" data-w-field="${esc(key)}" type="${type}" value="${esc(value ?? '')}" ${extra}></label>`;
-  const textarea = (p, key, label, value, limit = 2000) => `<label class="jw-input" for="jw-${esc(p.instanceId || p.itemId)}-${esc(p.kind)}-${esc(key)}"><span>${esc(label)}</span><textarea id="jw-${esc(p.instanceId || p.itemId)}-${esc(p.kind)}-${esc(key)}" data-w-field="${esc(key)}" maxlength="${limit}" rows="3">${esc(value)}</textarea></label>`;
+  const input = (p, key, label, value, type = 'text', extra = '') => p.dashboard ? '' : `<label class="jw-input" for="jw-${esc(p.instanceId || p.itemId)}-${esc(p.kind)}-${esc(key)}"><span>${esc(label)}</span><input id="jw-${esc(p.instanceId || p.itemId)}-${esc(p.kind)}-${esc(key)}" data-w-field="${esc(key)}" type="${type}" value="${esc(value ?? '')}" ${extra}></label>`;
+  const textarea = (p, key, label, value, limit = 2000) => p.dashboard ? value ? `<p class="jw-saved-text">${esc(value)}</p>` : '' : `<label class="jw-input" for="jw-${esc(p.instanceId || p.itemId)}-${esc(p.kind)}-${esc(key)}"><span>${esc(label)}</span><textarea id="jw-${esc(p.instanceId || p.itemId)}-${esc(p.kind)}-${esc(key)}" data-w-field="${esc(key)}" maxlength="${limit}" rows="3">${esc(value)}</textarea></label>`;
   const title = (text, meta = '') => `${meta ? `<p class="jw-label">${esc(meta)}</p>` : ''}<h2>${esc(text)}</h2>`;
   const empty = (p, text) => `<div class="jw-empty"><p>${esc(text)}</p>${arr(p.missing).length ? `<p class="jw-muted">${arr(p.missing).map(esc).join(' · ')}</p>` : ''}</div>`;
   const sourceLink = (url, text = '查看材料来源 ↗') => link(url) ? `<a class="jw-source-link" href="${esc(link(url))}" target="_blank" rel="noopener noreferrer">${esc(text)}</a>` : '';
   const list = (values, cls = '') => `<ul class="${cls}">${arr(values).map(v => `<li>${esc(v)}</li>`).join('')}</ul>`;
+  function stepContent(label) {
+    if (label.length <= 140) return { title: label, detail: '' };
+    const sentence = label.match(/^.{1,120}?[。？！?]/u)?.[0];
+    const title = sentence || Array.from(label).slice(0, 100).join('') + '…';
+    return { title, detail: `<details class="jw-step-detail"><summary>展开全文</summary><p>${esc(label)}</p></details>` };
+  }
   const renderers = {
     agenda(p, item) {
       const d = p.data, at = d.date || item.date, scheduled = !!asInput(at);
@@ -42,7 +49,7 @@
     prep(p, item, ui) {
       const d = p.data, steps = arr(d.steps || item.steps), phases = arr(d.phases), phase = phases.find(v => v.id === (ui.phaseId || d.activePhaseId)) || phases[0];
       const shown = phase ? steps.filter(s => arr(phase.stepIds).includes(s.id)) : steps, next = shown.find(s => !s.done);
-      return `${title(item.title, `${steps.filter(s => s.done).length} / ${steps.length} 项已准备`)}${phases.length && item.source?.kind !== 'guide' ? `<nav class="jw-phase-nav" aria-label="准备阶段">${phases.map((v, n) => button(p, 'ui-phase', `${n + 1} · ${v.label}`, { phaseId: v.id }, { pressed: v.id === phase?.id })).join('')}</nav>` : ''}${shown.length ? `<ul class="jw-prep-list">${shown.map(s => `<li data-j-row="${esc(s.id)}"><label><input type="checkbox" data-w-checkbox="step" data-w-kind="prep" data-item="${esc(item.id)}" data-w-payload="${esc(JSON.stringify({ stepId: s.id }))}" ${s.done ? 'checked' : ''} ${!allowed(p, 'step') ? 'disabled' : ''}><span>${esc(s.label)}</span></label></li>`).join('')}</ul>` : empty(p, '准备材料还没有分段。')}`;
+      return `${title(item.title, `${steps.filter(s => s.done).length} / ${steps.length} 项已准备`)}${phases.length > 1 && item.source?.kind !== 'guide' ? `<nav class="jw-phase-nav" aria-label="准备阶段">${phases.map((v, n) => button(p, 'ui-phase', `${n + 1} · ${v.label}`, { phaseId: v.id }, { pressed: v.id === phase?.id })).join('')}</nav>` : ''}${shown.length ? `<ul class="jw-prep-list">${shown.map(s => { const text = stepContent(s.label); return `<li data-j-row="${esc(s.id)}"><label><input type="checkbox" data-w-checkbox="step" data-w-kind="prep" data-item="${esc(item.id)}" data-w-payload="${esc(JSON.stringify({ stepId: s.id }))}" ${s.done ? 'checked' : ''} ${!allowed(p, 'step') ? 'disabled' : ''}><span>${esc(text.title)}</span></label>${text.detail}</li>`; }).join('')}</ul>` : empty(p, '准备材料还没有分段。')}`;
     },
     decision(p, item) {
       const d = p.data, candidates = arr(d.candidates || item.candidates), criteria = arr(d.criteria), options = arr(d.options);
@@ -56,7 +63,7 @@
     },
     shopping(p, item) {
       const entries = arr(p.data.entries), categories = [...new Set(entries.map(e => e.category || '待采购'))];
-      return `${title(item.title, `${entries.filter(e => !e.bought && !e.atHome).length} 种待买`)}${entries.length ? categories.map(c => `<section class="jw-shopping-group"><h3>${esc(c)}</h3><ul>${entries.filter(e => (e.category || '待采购') === c).map(e => `<li><div><label><input type="checkbox" data-w-checkbox="mark-bought" data-w-kind="shopping" data-item="${esc(item.id)}" data-w-payload="${esc(JSON.stringify({ entryId: e.id }))}" ${e.bought || e.atHome ? 'checked' : ''} ${e.atHome || !allowed(p, 'mark-bought') ? 'disabled' : ''}>${esc(e.name)}</label><small>${e.atHome ? '家里已有' : e.bought ? '用户记下已买' : '待买'}</small></div><div class="jw-quantity">${e.atHome ? `<span class="jw-quantity-value">${Number.isFinite(e.quantity) ? esc(e.quantity) : '数量待补'} ${esc(e.unit)}</span>` : `<details class="jw-quantity-editor" data-w-detail="quantity-${esc(e.id)}"><summary><span>${Number.isFinite(e.quantity) ? esc(e.quantity) : '数量待补'} ${esc(e.unit)}</span><small>调整</small></summary><div>${input(p, `qty-${e.id}`, `数量（${e.unit || '单位待补'}）`, e.quantity, 'number', 'min="0" step="any"')}${button(p, 'quantity', '保存数量', { entryId: e.id })}</div></details>`}</div></li>`).join('')}</ul></section>`).join('') : empty(p, '采购材料还没补齐。')}`;
+      return `${title(item.title, `${entries.filter(e => !e.bought && !e.atHome).length} 种待买`)}${entries.length ? categories.map(c => `<section class="jw-shopping-group"><h3>${esc(c)}</h3><ul>${entries.filter(e => (e.category || '待采购') === c).map(e => `<li><div><label><input type="checkbox" data-w-checkbox="mark-bought" data-w-kind="shopping" data-item="${esc(item.id)}" data-w-payload="${esc(JSON.stringify({ entryId: e.id }))}" ${e.bought || e.atHome ? 'checked' : ''} ${e.atHome || !allowed(p, 'mark-bought') ? 'disabled' : ''}>${esc(e.name)}</label><small>${e.atHome ? '家里已有' : e.bought ? '用户记下已买' : '待买'}</small></div><div class="jw-quantity">${e.atHome || p.dashboard ? `<span class="jw-quantity-value">${Number.isFinite(e.quantity) ? esc(e.quantity) : '数量待补'} ${esc(e.unit)}</span>` : `<details class="jw-quantity-editor" data-w-detail="quantity-${esc(e.id)}"><summary><span>${Number.isFinite(e.quantity) ? esc(e.quantity) : '数量待补'} ${esc(e.unit)}</span><small>调整</small></summary><div>${input(p, `qty-${e.id}`, `数量（${e.unit || '单位待补'}）`, e.quantity, 'number', 'min="0" step="any"')}${button(p, 'quantity', '保存数量', { entryId: e.id })}</div></details>`}</div></li>`).join('')}</ul></section>`).join('') : empty(p, '采购材料还没补齐。')}`;
     },
     itinerary(p, item, ui) {
       const d = p.data, omitted = ui.omittedStopIds || arr(d.omittedStopIds), stops = arr(d.stops).filter(s => !omitted.includes(s.id));
@@ -64,11 +71,11 @@
     },
     waiting(p, item, ui) {
       const requests = arr(p.data.requests), selected = requests.find(r => r.id === ui.requestId) || requests.find(r => r.status === 'waiting') || requests[0];
-      return `${title(item.title)}${requests.length ? `<ul class="jw-waiting-people">${requests.map(r => `<li><span class="jw-initial" aria-hidden="true">${esc(r.person?.slice(0, 1) || '?')}</span><div><strong>${esc(r.person || '联系人待补')}</strong><p>${esc(r.request)}</p><small>${r.due ? `希望 ${esc(date(r.due))} 前回复` : '回复期限待补'}</small></div><span>${({ agreed: '已同意', declined: '无法配合', waiting: '未回复', unknown: '状态未知' })[r.status] || '状态未知'}</span>${button(p, 'ui-request', '草稿', { requestId: r.id }, { pressed: selected?.id === r.id })}</li>`).join('')}</ul>${selected ? `<div class="jw-draft"><p class="jw-label">给 ${esc(selected.person || '这位联系人')} 的草稿 · 未发送</p>${textarea(p, 'text', '核对或修改措辞', selected.draft || '')}${button(p, 'save-draft', '保存草稿', { requestId: selected.id }, { primary: true })}</div>` : ''}` : empty(p, '还没有记录等待谁的回音。')}`;
+      return `${title(item.title)}${requests.length ? `<ul class="jw-waiting-people">${requests.map(r => `<li><span class="jw-initial" aria-hidden="true">${esc(r.person?.slice(0, 1) || '?')}</span><div><strong>${esc(r.person || '联系人待补')}</strong><p>${esc(r.request)}</p><small>${r.due ? `希望 ${esc(date(r.due))} 前回复` : '回复期限待补'}</small></div><span>${({ agreed: '已同意', declined: '无法配合', waiting: '未回复', unknown: '状态未知' })[r.status] || '状态未知'}</span>${!p.dashboard || r.draft ? button(p, 'ui-request', '草稿', { requestId: r.id }, { pressed: selected?.id === r.id }) : ''}</li>`).join('')}</ul>${selected && (!p.dashboard || selected.draft) ? `<div class="jw-draft"><p class="jw-label">给 ${esc(selected.person || '这位联系人')} 的草稿 · 未发送</p>${textarea(p, 'text', '核对或修改措辞', selected.draft || '')}${button(p, 'save-draft', '保存草稿', { requestId: selected.id }, { primary: true })}</div>` : ''}` : empty(p, '还没有记录等待谁的回音。')}`;
     },
     delivery(p, item) {
       const d = p.data, events = arr(d.events), latest = events.at(-1), stages = arr(d.stages), index = latest ? stages.findIndex(s => s.id === latest.stageId) : -1;
-      return `${title(item.title, d.reference ? `记录编号：${d.reference}` : '编号待补')}<ol class="jw-delivery-stages">${stages.map((s, n) => `<li data-state="${n < index ? 'past' : n === index ? 'current' : 'unknown'}"><span>${n + 1}</span><strong>${esc(s.label)}</strong><small>${n <= index ? '有记录' : '未取得回执'}</small></li>`).join('')}</ol>${latest ? `<div class="jw-delivery-latest"><p class="jw-label">最近取得的材料</p><strong>${esc(latest.detail)}</strong><p>${esc(date(latest.at))}</p><p>${esc(latest.evidence || '证据来源待补')}</p></div>` : empty(p, '还没有取得履约回执。')}<details class="jw-detail"><summary>补记取得的回执</summary><div class="jw-action-form"><label class="jw-input">阶段<select data-w-field="stageId"><option value="">选择实际阶段</option>${stages.map(s => `<option value="${esc(s.id)}">${esc(s.label)}</option>`).join('')}</select></label>${input(p, 'at', '回执时间', '', 'datetime-local')}${textarea(p, 'detail', '回执内容', '')}${input(p, 'evidence', '证据来源', '')}${button(p, 'record-event', '保存回执', {}, { primary: true })}</div></details>`;
+      return `${title(item.title, d.reference ? `记录编号：${d.reference}` : '编号待补')}<ol class="jw-delivery-stages">${stages.map((s, n) => `<li data-state="${n < index ? 'past' : n === index ? 'current' : 'unknown'}"><span>${n + 1}</span><strong>${esc(s.label)}</strong><small>${n <= index ? '有记录' : '未取得回执'}</small></li>`).join('')}</ol>${latest ? `<div class="jw-delivery-latest"><p class="jw-label">最近取得的材料</p><strong>${esc(latest.detail)}</strong><p>${esc(date(latest.at))}</p><p>${esc(latest.evidence || '证据来源待补')}</p></div>` : empty(p, '还没有取得履约回执。')}${p.dashboard ? '' : `<details class="jw-detail"><summary>补记取得的回执</summary><div class="jw-action-form"><label class="jw-input">阶段<select data-w-field="stageId"><option value="">选择实际阶段</option>${stages.map(s => `<option value="${esc(s.id)}">${esc(s.label)}</option>`).join('')}</select></label>${input(p, 'at', '回执时间', '', 'datetime-local')}${textarea(p, 'detail', '回执内容', '')}${input(p, 'evidence', '证据来源', '')}${button(p, 'record-event', '保存回执', {}, { primary: true })}</div></details>`}`;
     },
     deadline(p, item) {
       const d = p.data, due = d.dueAt || item.date;
@@ -93,7 +100,7 @@
       if (item.source?.kind === 'automatic') {
         return `${title(item.title, `${entries.length} 条来源材料`)}<div class="jw-auto-reading" data-auto-reading></div>`;
       }
-      return `${title(item.title, `${entries.length} 条保留的灵感`)}${entries.length ? `<div class="jw-pinboard">${entries.map((e, n) => `<article class="jw-clip jw-clip-${n % 3}"><h3>${esc(e.title)}</h3><p>${esc(e.note || '还没有补注。')}</p>${sourceLink(e.url)}</article>`).join('')}</div>` : empty(p, '还没有留下灵感材料。')}<details class="jw-detail"><summary>留下一条灵感</summary><div class="jw-action-form">${input(p, 'title', '灵感标题', '')}${textarea(p, 'note', '这条想法', '')}${input(p, 'url', '已有材料链接（可留空）', '', 'url')}${button(p, 'add-entry', '保存这条灵感', {}, { primary: true })}</div></details>`;
+      return `${title(item.title, `${entries.length} 条保留的灵感`)}${entries.length ? `<div class="jw-pinboard">${entries.map((e, n) => `<article class="jw-clip jw-clip-${n % 3}"><h3>${esc(e.title)}</h3><p>${esc(e.note || '还没有补注。')}</p>${sourceLink(e.url)}</article>`).join('')}</div>` : empty(p, '还没有留下灵感材料。')}${p.dashboard ? '' : `<details class="jw-detail"><summary>留下一条灵感</summary><div class="jw-action-form">${input(p, 'title', '灵感标题', '')}${textarea(p, 'note', '这条想法', '')}${input(p, 'url', '已有材料链接（可留空）', '', 'url')}${button(p, 'add-entry', '保存这条灵感', {}, { primary: true })}</div></details>`}`;
     },
     documents(p, item, ui) {
       const entries = arr(p.data.entries), current = entries.find(e => e.id === ui.entryId) || entries[0];
@@ -109,21 +116,26 @@
     },
     reflection(p, item) {
       const d = p.data;
+      if (p.dashboard) return `${title(item.title)}${d.rating !== null && d.rating !== undefined ? `<p class="jw-saved-rating">${esc(d.rating)} / 5</p>` : ''}<p class="jw-saved-text">${esc(d.text || item.note || '尚无回顾')}</p>`;
       return `${title(item.title, '感受')}<div class="jw-rating"><label>这次感受（可不评分）<select data-w-field="rating"><option value="">不评分</option>${[1, 2, 3, 4, 5].map(n => `<option value="${n}" ${d.rating === n ? 'selected' : ''}>${n} / 5</option>`).join('')}</select></label></div>${textarea(p, 'text', '想留的话', d.text || item.note || '', 10000)}<div class="jw-actions">${button(p, 'save-reflection', '保存', {}, { primary: true })}</div>`;
     },
     memory(p, item) {
       const d = p.data, at = d.occurredAt || item.date;
-      return `<div class="jw-memory-page"><aside class="jw-memory-date">${esc(date(at, { hour: undefined, minute: undefined }))}</aside><article>${title(item.title)}${d.caption ? `<blockquote>${esc(d.caption)}</blockquote>` : ''}<div class="jw-memory-story">${esc(d.text || item.note || '这页还没有留下故事。')}</div><details class="jw-detail"><summary>补一句记忆</summary>${textarea(p, 'text', '这段故事', d.text || item.note || '', 10000)}${input(p, 'caption', '留一句原话（可留空）', d.caption || '')}${input(p, 'occurredAt', '实际发生的时间（可留空）', asInput(at), 'datetime-local')}<div class="jw-actions">${button(p, 'save-memory', '保存补记', {}, { primary: true })}</div></details></article></div>`;
+      return `<div class="jw-memory-page"><aside class="jw-memory-date">${esc(date(at, { hour: undefined, minute: undefined }))}</aside><article>${title(item.title)}${d.caption ? `<blockquote>${esc(d.caption)}</blockquote>` : ''}<div class="jw-memory-story">${esc(d.text || item.note || '这页还没有留下故事。')}</div>${p.dashboard ? '' : `<details class="jw-detail"><summary>补一句记忆</summary>${textarea(p, 'text', '这段故事', d.text || item.note || '', 10000)}${input(p, 'caption', '留一句原话（可留空）', d.caption || '')}${input(p, 'occurredAt', '实际发生的时间（可留空）', asInput(at), 'datetime-local')}<div class="jw-actions">${button(p, 'save-memory', '保存补记', {}, { primary: true })}</div></details>`}</article></div>`;
     },
     handoff(p, item) {
       const d = p.data, people = arr(d.people);
       return `${title(item.title, '分工')}<div class="jw-responsibilities">${people.map(person => `<section><span class="jw-initial" aria-hidden="true">${esc(person.name?.slice(0, 1) || '?')}</span><h3>${esc(person.name || '负责人待补')}</h3><p class="jw-label">${esc(person.role || '职责待补')}</p>${list(person.tasks)}${input(p, `owner-${person.id}`, '负责人名称', person.name || '')}${button(p, 'set-owner', '保存负责人', { personId: person.id })}</section>`).join('')}</div>${people.length ? `<div class="jw-handoff-condition"><span class="jw-label">交付条件</span><p>${esc(d.condition || '交付条件待补')}</p></div>` : empty(p, '这件事的负责人还没有明确。')}<p class="jw-muted">${esc(d.note || '保存分工不等于对方已经接手。')}</p>`;
     },
   };
+  function isEmptyReference(widget, item) {
+    const p = widget.projection, kind = p?.kind || widget.kind, data = p?.data || item.taskData?.[kind] || {};
+    return kind === 'collection' && !data.entries?.length || kind === 'handoff' && !data.people?.length && !data.condition && !data.note || kind === 'memory' && !data.text && !data.caption && !item.note || kind === 'reflection' && !data.text && data.rating == null;
+  }
   function render(widget, item, ui = {}, options = {}) {
     const p = widget.projection;
     if (!p || !renderers[p.kind]) return `<div class="jw-summary">${title(item.title, date(item.date))}<p>${esc(item.note || '已记下，等待按材料整理。')}</p></div>`;
-    let content = renderers[p.kind]({ ...p, instanceId: widget.id, data: p.data || {} }, item, ui);
+    let content = renderers[p.kind]({ ...p, instanceId: widget.id, data: p.data || {}, dashboard: options.dashboard === true }, item, ui);
     if (options.embedded) content = content.replace(`<h2>${esc(item.title)}</h2>`, `<h3 class="jw-section-title">${esc(item.source?.kind === 'automatic' ? '来源精选' : names[p.kind])}</h3>`);
     return `<div class="journal-task-widget jw-${esc(p.kind)}" data-task-kind="${esc(p.kind)}">${content}</div>`;
   }
@@ -279,5 +291,5 @@
     });
     return { steps, candidates };
   }
-  window.PAJournalWidgets = { names, kinds, render, action, allowed, esc, asInput, taskEditor, readTaskEditor, baseEditor, readBaseEditor, rowMarkup, ready: customElements.whenDefined('wa-button') };
+  window.PAJournalWidgets = { isEmptyReference, names, kinds, render, action, allowed, esc, asInput, taskEditor, readTaskEditor, baseEditor, readBaseEditor, rowMarkup, ready: customElements.whenDefined('wa-button') };
 })();

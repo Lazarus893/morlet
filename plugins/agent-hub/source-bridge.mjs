@@ -1,3 +1,4 @@
+import { readAttachment } from './attachments.mjs';
 import { assertRoutineSourceAccess, routineSourceInventory } from './routine-scope.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -99,6 +100,7 @@ function prune(hub) {
 }
 
 export async function routedSourcesTool(options) {
+  if (options.input?.arguments?.operation === 'attachment_read') return readAttachment(options);
   const { hub, token, input } = options;
   const authorize = () => {
     const endpoint = hub.authenticate(token), run = hub.get('run', input?.runId);

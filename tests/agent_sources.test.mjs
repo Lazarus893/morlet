@@ -9,6 +9,31 @@ import { SOURCE_TOOL, SOURCE_ACTIONS, SOURCE_OPERATIONS, validateSourceArguments
 import { createConnectionManager } from '../plugins/connections/manager.mjs';
 import { JournalStore } from '../plugins/life-journal/store.mjs';
 import { createRoutineController, routineTool } from '../plugins/agent-hub/routines.mjs';
+import { pdfFixture, docxFixture } from './fixtures/documents.mjs';
+
+test('authorized PDF and Word reads include coverage, reject scans and retain path and secret guards', async t => {
+  const f = await fixture(t);
+  await writeFile(join(f.directory, 'brief.pdf'), pdfFixture());
+  await writeFile(join(f.directory, 'brief.docx'), docxFixture());
+  const pdf = await f.call('file_read', { rootId: 'documents', relativePath: 'brief.pdf' });
+  assert.match(pdf.text, /Meeting decision/); assert.equal(pdf.totalPages, 1); assert.equal(pdf.complete, true); assert.equal(pdf.coverage, 'embedded_text_only');
+  const docx = await f.call('file_read', { rootId: 'documents', relativePath: 'brief.docx' });
+  assert.match(docx.text, /确认试点范围/); assert.equal(docx.complete, true); assert.equal(docx.coverage, 'document_text_only');
+  await writeFile(join(f.directory, 'escaped.docx'), docxFixture('会议\nA&B <条款> "确认"'));
+  const escaped = await f.call('file_read', { rootId: 'documents', relativePath: 'escaped.docx' });
+  assert.match(escaped.text, /A&B <条款> "确认"/);
+  await writeFile(join(f.directory, 'scan.pdf'), pdfFixture(''));
+  await assert.rejects(f.call('file_read', { rootId: 'documents', relativePath: 'scan.pdf' }), code('SOURCE_DOCUMENT_OCR_REQUIRED'));
+  await writeFile(join(f.directory, 'long.docx'), docxFixture('文'.repeat(24000)));
+  const long = await f.call('file_read', { rootId: 'documents', relativePath: 'long.docx' });
+  assert.equal(long.textCharacters, 20000); assert.equal(long.complete, false); assert.equal(long.truncated, true);
+  assert.equal(long.text, '文'.repeat(20000));
+  await writeFile(join(f.directory, 'sensitive.docx'), docxFixture('password: private-fixture-value'));
+  await assert.rejects(f.call('file_read', { rootId: 'documents', relativePath: 'sensitive.docx' }), code('SOURCE_SENSITIVE_CONTENT'));
+  await assert.rejects(f.call('file_read', { rootId: 'documents', relativePath: '../brief.pdf' }), code('SOURCE_PATH_FORBIDDEN'));
+  await writeFile(join(f.directory, 'broken.docx'), 'bad document');
+  await assert.rejects(f.call('file_read', { rootId: 'documents', relativePath: 'broken.docx' }), code('SOURCE_DOCUMENT_INVALID'));
+});
 
 const code = expected => error => error.code === expected;
 const success = value => ({ exitCode: 0, stdout: JSON.stringify(value) });
@@ -51,7 +76,7 @@ test('unconfigured inventory is empty and does not inspect an implicit CLI accou
 
 test('configured inventory gives only action names and root labels, never private account or paths', async t => {
   const f = await fixture(t), value = await f.call('list');
-  assert.deepEqual(value.actions, SOURCE_TOOL.inputSchema.properties.operation.enum.filter(op => op !== 'x_timeline'));
+  assert.deepEqual(value.actions, SOURCE_TOOL.inputSchema.properties.operation.enum.filter(op => !['x_timeline', 'attachment_read'].includes(op)));
   assert.deepEqual(value.roots, [{ id: 'documents', label: '我的文档' }]); assert.equal(value.untrusted, true);
   const serialized = JSON.stringify(value);
   for (const hidden of [f.root, 'owner@example.test', 'OwnerLogin', '/fixture/', 'token']) assert.equal(serialized.includes(hidden), false);
@@ -332,12 +357,12 @@ test('unsupported write actions, arbitrary arguments and secret or binary file c
 test('initial, unpaired and bridge-unpaired stores preserve independent explicit local source permission', async t => {
   const f = await fixture(t, { runner: async () => success({ body: 'Explicit local profile permission', message: { id: 'abc1' } }) });
   const manager = f.connections();
-  assert.deepEqual((await f.call('list')).actions, SOURCE_TOOL.inputSchema.properties.operation.enum.filter(op => op !== 'x_timeline'));
+  assert.deepEqual((await f.call('list')).actions, SOURCE_TOOL.inputSchema.properties.operation.enum.filter(op => !['x_timeline', 'attachment_read'].includes(op)));
   assert.equal((await f.call('mail_read', { messageId: 'abc1' })).complete, true);
   let state = manager.snapshot();
   manager.mutate({ operation: 'pair', revision: state.revision, values: { name: 'Fixture Mac' } });
   state = manager.snapshot(); manager.mutate({ operation: 'unpair', revision: state.revision });
-  assert.deepEqual((await sourceInventory(f.root)).actions, SOURCE_TOOL.inputSchema.properties.operation.enum.filter(op => op !== 'x_timeline'));
+  assert.deepEqual((await sourceInventory(f.root)).actions, SOURCE_TOOL.inputSchema.properties.operation.enum.filter(op => !['x_timeline', 'attachment_read'].includes(op)));
   manager.close();
   const db = new DatabaseSync(join(f.root, '.runtime/connections/state.sqlite'));
   try { db.prepare('DELETE FROM connections WHERE id=1').run(); } finally { db.close(); }
@@ -681,7 +706,7 @@ test('authorization snapshots allow generation-zero initialization but detect re
 
 test('operation capability registry is frozen, complete and maps Docs and Sheets to Drive permission only', () => {
   assert.ok(Object.isFrozen(SOURCE_OPERATIONS));
-  assert.deepEqual(SOURCE_ACTIONS, ['list', ...Object.keys(SOURCE_OPERATIONS)]);
+  assert.deepEqual(SOURCE_ACTIONS, ['list', 'attachment_read', ...Object.keys(SOURCE_OPERATIONS)]);
   for (const value of Object.values(SOURCE_OPERATIONS)) assert.ok(Object.isFrozen(value));
   assert.deepEqual(SOURCE_OPERATIONS.docs_read, { kind: 'google', service: 'docs', permission: 'drive' });
   assert.deepEqual(SOURCE_OPERATIONS.sheets_read, { kind: 'google', service: 'sheets', permission: 'drive' });

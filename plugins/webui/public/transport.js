@@ -49,7 +49,7 @@
       } catch (error) {
         if (typeof error.code === 'string') throw error;
         throw failure(controller.signal.aborted ? 'REQUEST_TIMEOUT' : 'NETWORK_UNAVAILABLE',
-          data === undefined ? '暂时连不上小满，正在重新连接。' : '尚未确认服务是否收到了这条消息，输入已保留。恢复后重试会沿用同一请求。');
+          data === undefined ? '暂时连不上 Morlet，正在重新连接。' : '尚未确认服务是否收到了这条消息，输入已保留。恢复后重试会沿用同一请求。');
       } finally { clearTimeout(timer); }
     }
     return { api };

@@ -113,14 +113,14 @@ async function listenForCode(callback, state, { signal, timeoutMs }) {
     const incoming = url.searchParams.getAll('state');
     const expected = Buffer.from(state);
     const provided = Buffer.from(incoming[0] || '');
-    if (incoming.length !== 1 || expected.length !== provided.length || !timingSafeEqual(expected, provided)) { response.writeHead(400).end('授权状态不匹配，请回到小满重试。'); return; }
+    if (incoming.length !== 1 || expected.length !== provided.length || !timingSafeEqual(expected, provided)) { response.writeHead(400).end('授权状态不匹配，请回到Morlet重试。'); return; }
     if (url.searchParams.has('error')) {
-      response.writeHead(200).end('已取消授权，可以回到小满。');
+      response.writeHead(200).end('已取消授权，可以回到Morlet。');
       finish({ error: 'auth_denied' }); return;
     }
     const codes = url.searchParams.getAll('code');
     if (codes.length !== 1 || !codes[0] || codes[0].length > 4096) { response.writeHead(400).end('缺少授权结果'); return; }
-    response.writeHead(200).end('授权已返回。小满正在完成连接，请回到手账查看结果。');
+    response.writeHead(200).end('授权已返回。Morlet正在完成连接，请回到手账查看结果。');
     finish({ code: codes[0] });
   });
   await new Promise((resolve, reject) => {

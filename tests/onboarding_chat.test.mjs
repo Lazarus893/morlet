@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { setImmediate as nextTurn } from 'node:timers/promises';
 import { webcrypto } from 'node:crypto';
 import vm from 'node:vm';
+import { messageTimes, projectMessage } from '../plugins/agent-hub/projections.mjs';
 
 const truthSource = await readFile(new URL('../plugins/webui/public/truth.js', import.meta.url), 'utf8');
 const source = await readFile(new URL('../plugins/webui/public/chat.js', import.meta.url), 'utf8');
@@ -14,6 +15,7 @@ const deferred = () => {
   return { promise, resolve, reject };
 };
 const snapshot = (conversations = [{ id: 'old-im', title: '原来的手机对话', endpointId: 'agent-a' }]) => ({
+  bots: [{ id: 'xiaoman', name: '小满', handle: 'xiaoman', avatar: 'steward', active: true, connected: true, online: true, resolvedEndpointId: 'agent-a' }, { id: 'agent-b', name: '阿探', handle: 'research', avatar: 'research', active: true, connected: true, online: true, resolvedEndpointId: 'agent-b' }],
   endpoints: [{ id: 'agent-a', label: '测试执行端', provider: 'codex', active: true, online: true }],
   conversations, messages: [], runs: [], tasks: [], approvals: [], deliveries: [], channels: [], bindings: [],
 });
@@ -31,6 +33,14 @@ class Element {
   get innerHTML() { return this._html; }
   set innerHTML(value) {
     this._html = value;
+    if (this.id === 'chat-messages') {
+      this.children = [...value.matchAll(/<article\b[^>]*id="([^"]+)"[^>]*data-message-id="([^"]+)"/g)].map((match, index) => {
+        const node = new Element('article', match[1]); node.dataset.messageId = match[2];
+        node.getBoundingClientRect = () => ({ top: index * 100 - this.scrollTop, bottom: (index + 1) * 100 - this.scrollTop });
+        node.scrollIntoView = () => { this.scrollTop = index * 100; }; return node;
+      });
+      this.scrollHeight = this.children.length * 100;
+    }
     if (this.tagName === 'SELECT') {
       this.options = [...value.matchAll(/<option\b[^>]*value="([^"]*)"[^>]*>/g)].map(match => ({ value: match[1] }));
       this.value = this.options[0]?.value || '';
@@ -43,11 +53,12 @@ class Element {
   append(node) { this.children.push(node); }
   prepend(node) { this.options.unshift(node); }
   replaceChildren() { this.children = []; }
-  querySelectorAll(selector) { return this.children.filter(node => node.tagName.toLowerCase() === selector); }
+  querySelectorAll(selector) { return this.children.filter(node => node.tagName.toLowerCase() === selector || selector === '[data-message-id]' && node.dataset.messageId || selector === '#' + node.id); }
   querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
   closest(selector) { return selector === 'form' ? this.form : selector === '.chat-center' ? this.section : null; }
   focus() { this.focusCount = (this.focusCount || 0) + 1; }
   scrollIntoView() {}
+  getBoundingClientRect() { return { top: 0, bottom: this.clientHeight }; }
   setAttribute(name, value) { this[name] = String(value); }
   getAttribute(name) { return this[name] ?? null; }
 }
@@ -80,7 +91,7 @@ class Root extends Element {
     if (selector === '.chat-center') return this._html ? this.section : null;
     if (selector === 'h1') return this.heading;
     if (selector === '#chat-compose textarea') return this.nodes.get('chat-input');
-    return selector.startsWith('#') ? this.nodes.get(selector.slice(1)) : null;
+    return selector.startsWith('#') ? this.nodes.get(selector.slice(1)) || this.nodes.get('chat-messages')?.querySelector(selector) || undefined : null;
   }
   querySelectorAll(selector) { return selector.split(',').map(part => this.querySelector(part.trim())).filter(Boolean); }
 }
@@ -93,7 +104,8 @@ class FormDataFixture {
 
 function harness(transport, initialStorage = {}, initialOptions = {}) {
   const root = new Root(), intervals = new Map(), storage = new Map(Object.entries(initialStorage)), calls = [], revoked = [];
-  let nextInterval = 0, nextBlob = 0;
+  let nextInterval = 0, nextBlob = 0, confirmed = false;
+  const confirmations = [];
   class URLFixture extends URL {
     static createObjectURL() { return `blob:fixture-${++nextBlob}`; }
     static revokeObjectURL(url) { revoked.push(url); }
@@ -104,8 +116,8 @@ function harness(transport, initialStorage = {}, initialOptions = {}) {
     window: {}, document, FormData: FormDataFixture, Blob, URL: URLFixture, crypto: webcrypto,
     location: { protocol: 'https:', hostname: 'fixture.invalid', origin: 'https://fixture.invalid' },
     sessionStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) },
-    setInterval: fn => { intervals.set(++nextInterval, fn); return nextInterval; }, clearInterval: id => intervals.delete(id),
-    confirm: () => false, CSS: { escape: value => value },
+    setInterval: fn => { intervals.set(++nextInterval, fn); return nextInterval; }, clearInterval: id => intervals.delete(id), setTimeout: () => 1, clearTimeout() {},
+    confirm: text => { confirmations.push(text); return confirmed; }, CSS: { escape: value => value },
   });
   vm.runInContext(truthSource, context);
   vm.runInContext(source, context, { filename: 'production-chat.js' });
@@ -113,7 +125,7 @@ function harness(transport, initialStorage = {}, initialOptions = {}) {
   const api = async (path, data) => { calls.push(data?.operation || 'GET'); return transport(path, data); };
   const mount = (options = initialOptions) => chat.mount({ root, api, runtime: { accounts: [] }, localAgentAvailable: false, ...options });
   mount();
-  return { chat, root, calls, storage, revoked, mount,
+  return { chat, root, calls, storage, revoked, mount, confirmations, allowConfirm: () => { confirmed = true; },
     control: id => root.querySelector('#' + id),
     tick: () => { for (const fn of intervals.values()) fn(); },
     submit: id => root.emit('submit', { target: root.querySelector('#' + id) }),
@@ -132,6 +144,116 @@ function locked(h) {
 function selectedIds(h) {
   const id = h.storage.get('xiaoman-current-conversation'); return id ? [id] : [];
 }
+
+test('canonical direct and group sends stay in chat until a journal item is explicitly supplied', async () => {
+  for (const roomKind of ['direct', 'group']) {
+    const sent = [], room = { id: 'room-a', title: '固定聊天', botId: roomKind === 'direct' ? 'agent-b' : 'xiaoman' };
+    const h = harness(async (_path, data) => { if (data) { sent.push(data); return {}; } return snapshot([room]); }, {}, { conversationId: room.id, roomKind, botId: room.botId });
+    try {
+      await ready(h);
+      assert.equal(h.control('chat-agent-select').value, room.botId);
+      assert.equal(h.control('chat-compose').dataset.direct, String(roomKind === 'direct'));
+      if (roomKind === 'group') assert.match(h.control('chat-agent-select').innerHTML, /自动分派/);
+      h.control('chat-input').value = '只聊一条消息'; h.submit('chat-compose');
+      await eventually(() => sent.length === 1 && !h.chat.isBusy());
+      assert.equal(sent[0].journal, false); assert.equal(sent[0].journalItemId, undefined);
+      assert.equal(sent[0].botId, room.botId); assert.equal(h.control('chat-input').value, '');
+      assert.equal(h.control('chat-status').textContent, '');
+      h.chat.unmount(); h.mount({ conversationId: room.id, roomKind, botId: room.botId, journalItemId: 'item-a' });
+      await ready(h); h.control('chat-input').value = '跟进这一篇'; h.submit('chat-compose');
+      await eventually(() => sent.length === 2 && !h.chat.isBusy());
+      assert.equal(sent[1].journal, true); assert.equal(sent[1].journalItemId, 'item-a');
+    } finally { h.chat.unmount(); }
+  }
+});
+
+test('journal conversations filter messages, task errors and approvals by root task within one shared room', async () => {
+  const model = snapshot([{ id: 'room-a', title: '共享聊天', botId: 'xiaoman' }]);
+  model.runs = [
+    { id: 'run-a', rootRunId: 'run-a', journalItemIds: ['item-a'], conversationId: 'room-a', status: 'completed', createdAt: 1 },
+    { id: 'run-b', rootRunId: 'run-b', journalItemIds: ['item-b'], conversationId: 'room-a', status: 'failed', error: '另一篇错误', createdAt: 2 },
+  ];
+  model.messages = [
+    { id: 'message-a', conversationId: 'room-a', journalItemIds: ['item-a'], role: 'user', text: '甲篇消息', createdAt: 1 },
+    { id: 'message-child', conversationId: 'room-a', rootRunId: 'run-a', role: 'assistant', text: '甲篇协作回报', createdAt: 1 },
+    { id: 'message-b', conversationId: 'room-a', runId: 'run-b', role: 'user', text: '乙篇消息', createdAt: 2 },
+  ];
+  model.approvals = [{ id: 'approval-b', runId: 'run-b', conversationId: 'room-a', state: 'pending', action: { title: '另一篇审批' } }];
+  model.deliveries = [{ id: 'message-b', conversationId: 'room-a', state: 'unknown' }];
+  const h = harness(async () => model, {}, { conversationId: 'room-a', journalItemId: 'item-a' });
+  try {
+    await ready(h);
+    assert.match(h.control('chat-messages').innerHTML, /甲篇消息/); assert.match(h.control('chat-messages').innerHTML, /甲篇协作回报/);
+    assert.doesNotMatch(h.control('chat-messages').innerHTML, /乙篇消息/);
+    assert.equal(h.control('chat-run-notice').innerHTML, ''); assert.equal(h.control('chat-approvals').innerHTML, '');
+    assert.equal(h.control('chat-delivery-note').textContent, '');
+    h.mount({ conversationId: 'room-a', journalItemId: 'item-b' }); await ready(h);
+    assert.match(h.control('chat-messages').innerHTML, /乙篇消息/); assert.doesNotMatch(h.control('chat-messages').innerHTML, /甲篇消息/);
+    assert.match(h.control('chat-messages').innerHTML, /另一篇错误/);
+    assert.equal(h.control('chat-run-notice').innerHTML, '', 'Recovery is attached to the exact task message'); assert.match(h.control('chat-approvals').innerHTML, /另一篇审批/);
+    assert.match(h.control('chat-messages').innerHTML, /发送结果未知/);
+    h.mount({ conversationId: 'room-a', roomKind: 'group' }); await ready(h);
+    assert.match(h.control('chat-messages').innerHTML, /甲篇消息/); assert.match(h.control('chat-messages').innerHTML, /乙篇消息/);
+  } finally { h.chat.unmount(); }
+});
+
+test('two journal items in one room retain independent drafts and retry identities across remount and reload', async () => {
+  const requests = [], room = { id: 'room-a', title: '共享聊天', botId: 'xiaoman' };
+  const transport = async (_path, data) => {
+    if (!data) return snapshot([room]);
+    requests.push(data); throw Object.assign(new Error('响应丢失'), { code: 'NETWORK_UNAVAILABLE' });
+  };
+  const h = harness(transport, {}, { conversationId: room.id, journalItemId: 'item-a' });
+  await ready(h); h.control('chat-input').value = '甲篇草稿'; h.submit('chat-compose');
+  await eventually(() => requests.length === 1 && !h.chat.isBusy());
+  h.mount({ conversationId: room.id, journalItemId: 'item-b' }); await ready(h);
+  assert.equal(h.control('chat-input').value, '');
+  h.control('chat-input').value = '乙篇草稿'; h.submit('chat-compose');
+  await eventually(() => requests.length === 2 && !h.chat.isBusy());
+  assert.notEqual(requests[0].requestId, requests[1].requestId);
+  h.mount({ conversationId: room.id, journalItemId: 'item-a' }); await ready(h);
+  assert.equal(h.control('chat-input').value, '甲篇草稿'); h.chat.unmount();
+  const reload = harness(transport, Object.fromEntries(h.storage), { conversationId: room.id, journalItemId: 'item-b' });
+  try {
+    await ready(reload); assert.equal(reload.control('chat-input').value, '乙篇草稿');
+    assert.equal(requests.length, 2); reload.submit('chat-compose');
+    await eventually(() => requests.length === 3 && !reload.chat.isBusy());
+    assert.equal(requests[2].requestId, requests[1].requestId); assert.equal(requests[2].journalItemId, 'item-b');
+  } finally { reload.chat.unmount(); }
+});
+
+test('a new journal page keeps a separate draft and retry identity from its Bot private room', async () => {
+  const room = { id: 'room-a', title: '小满', botId: 'xiaoman', roomKind: 'direct' }, requests = [];
+  const model = snapshot([room]);
+  model.messages = [{ id: 'old-message', conversationId: room.id, role: 'user', text: '私聊旧消息', createdAt: 1 }];
+  const transport = async (_path, data) => {
+    if (!data) return model;
+    if (data.operation === 'open-room') return room;
+    requests.push(data); throw new Error('响应丢失');
+  };
+  const h = harness(transport, {}, { conversationId: room.id, roomKind: 'direct', botId: 'xiaoman' });
+  try {
+    await ready(h); h.control('chat-input').value = '私聊草稿'; h.submit('chat-compose');
+    await eventually(() => requests.length === 1 && !h.chat.isBusy());
+    h.mount({ journalDraft: true }); await ready(h); await h.chat.open({ newConversation: true });
+    assert.equal(h.control('chat-input').value, '');
+    assert.doesNotMatch(h.control('chat-messages').innerHTML, /私聊旧消息/);
+    h.control('chat-input').value = '新事项草稿'; h.submit('chat-compose');
+    await eventually(() => requests.length === 2 && !h.chat.isBusy());
+    assert.notEqual(requests[0].requestId, requests[1].requestId); assert.equal(requests[1].journal, true);
+    h.mount({ conversationId: room.id, roomKind: 'direct', botId: 'xiaoman' }); await ready(h);
+    assert.equal(h.control('chat-input').value, '私聊草稿');
+    h.submit('chat-compose'); await eventually(() => requests.length === 3 && !h.chat.isBusy());
+    assert.equal(requests[2].requestId, requests[0].requestId); h.chat.unmount();
+    const reload = harness(transport, Object.fromEntries(h.storage), { journalDraft: true });
+    try {
+      await ready(reload); await reload.chat.open({ newConversation: true });
+      assert.equal(reload.control('chat-input').value, '新事项草稿');
+      reload.submit('chat-compose'); await eventually(() => requests.length === 4 && !reload.chat.isBusy());
+      assert.equal(requests[3].requestId, requests[1].requestId);
+    } finally { reload.chat.unmount(); }
+  } finally { h.chat.unmount(); }
+});
 
 test('a conversation switch fetches its own messages while an older poll is still pending and preserves both drafts', async () => {
   const conversations = [{ id: 'old-im', title: '原来的手机对话', endpointId: 'agent-a' }, { id: 'new-web', title: '网页对话', endpointId: 'agent-a' }];
@@ -167,7 +289,7 @@ test('a slow fresh GET locks the old IM input before preparing an unsent Web dra
   h.control('chat-input').value = '原手机对话里尚未发送的内容';
   const opening = h.chat.open({ example, endpointId: 'agent-a' });
   locked(h); h.submit('chat-compose'); await nextTurn();
-  assert.equal(h.calls.includes('send'), false); assert.equal(h.calls.includes('new'), false);
+  assert.equal(h.calls.includes('send'), false); assert.equal(h.calls.includes('open-room'), false);
   fresh.resolve(snapshot()); await opening;
   assert.deepEqual(selectedIds(h), ['new-web']);
   assert.equal(h.control('chat-input').value, example);
@@ -189,12 +311,12 @@ test('a first mount waiting for its first snapshot cannot expose an editable old
   h.chat.unmount();
 });
 
-test('a delayed new-conversation POST keeps sending disabled and restores editing only after the new draft exists', async () => {
+test('a delayed canonical-room POST keeps sending disabled and restores editing only after the new draft exists', async () => {
   const created = deferred();
-  const h = harness(async (_path, data) => data?.operation === 'new' ? created.promise : snapshot());
+  const h = harness(async (_path, data) => data?.operation === 'open-room' ? created.promise : snapshot());
   await ready(h);
   const opening = h.chat.open({ example, endpointId: 'agent-a' });
-  await eventually(() => h.calls.includes('new'));
+  await eventually(() => h.calls.includes('open-room'));
   locked(h); h.submit('chat-compose'); await nextTurn();
   assert.deepEqual(selectedIds(h), ['old-im']); assert.equal(h.calls.includes('send'), false);
   created.resolve({ id: 'birthday-web', title: '第一件生活事', endpointId: 'agent-a' }); await opening;
@@ -245,7 +367,7 @@ test('an acknowledged-but-lost send retains its idempotency key across reload an
   const transport = async (_path, data) => {
     if (!data) { const value = snapshot(); value.endpoints.push({ id: 'agent-b', label: '另一个执行端', provider: 'codex', active: true, online: true }); return value; }
     assert.equal(data.operation, 'send'); requests.push(data.requestId); accepted.add(data.requestId);
-    assert.equal(data.endpointId, 'agent-b', 'manual retry must retain the explicitly selected Agent');
+    assert.equal(data.botId, 'agent-b', 'manual retry must retain the explicitly selected Bot');
     if (loseResponse) throw Object.assign(new Error('Response lost'), { code: 'NETWORK_UNAVAILABLE' });
     return {};
   };
@@ -269,9 +391,9 @@ test('an acknowledged-but-lost send retains its idempotency key across reload an
   final.chat.unmount();
 });
 
-test('a failed new-conversation POST releases the lock and leaves the original IM draft unsent', async () => {
+test('a failed canonical-room POST releases the lock and leaves the original IM draft unsent', async () => {
   const h = harness(async (_path, data) => {
-    if (data?.operation === 'new') throw new Error('新对话创建尚未成功');
+    if (data?.operation === 'open-room') throw new Error('新对话创建尚未成功');
     return snapshot();
   });
   await ready(h); h.control('chat-input').value = '旧对话里需要保留的交代';
@@ -279,7 +401,7 @@ test('a failed new-conversation POST releases the lock and leaves the original I
   assert.deepEqual(selectedIds(h), ['old-im']); assert.equal(h.control('chat-input').value, '旧对话里需要保留的交代');
   assert.equal(h.chat.isBusy(), false); assert.equal(h.control('chat-input').disabled, false);
   assert.equal(h.control('chat-send').disabled, false); assert.equal(h.control('chat-agent-select').disabled, false);
-  assert.equal(h.calls.filter(call => call === 'new').length, 1); assert.equal(h.calls.includes('send'), false);
+  assert.equal(h.calls.filter(call => call === 'open-room').length, 1); assert.equal(h.calls.includes('send'), false);
   h.chat.unmount();
 });
 
@@ -287,7 +409,7 @@ test('a polling GET that sees the created conversation before its POST response 
   const response = deferred(); let created = false;
   const newConversation = { id: 'one-web', title: '第一件生活事', endpointId: 'agent-a' };
   const h = harness(async (_path, data) => {
-    if (data?.operation === 'new') { created = true; return response.promise; }
+    if (data?.operation === 'open-room') { created = true; return response.promise; }
     const result = snapshot(); if (created) result.conversations.push(structuredClone(newConversation)); return result;
   });
   await ready(h);
@@ -295,7 +417,7 @@ test('a polling GET that sees the created conversation before its POST response 
   await eventually(() => created); h.tick();
   await nextTurn();
   response.resolve(newConversation); await opening;
-  assert.equal(h.calls.filter(call => call === 'new').length, 1);
+  assert.equal(h.calls.filter(call => call === 'open-room').length, 1);
   assert.deepEqual(selectedIds(h), ['one-web']); assert.equal(h.calls.includes('send'), false);
   h.chat.unmount();
 });
@@ -316,7 +438,7 @@ test('downloading an earlier pairing configuration does not clear a subsequently
 
 test('an invalid restored conversation ID keeps requiring a deliberate selection across polls and reloads', async () => {
   const h = harness(async () => snapshot(), { 'xiaoman-current-conversation': 'removed-conversation' });
-  await eventually(() => h.control('chat-status').textContent.includes('上次对话'));
+  await eventually(() => h.control('chat-status').textContent.includes('这段聊天暂不可用'));
   assert.deepEqual(selectedIds(h), []); assert.equal(h.control('chat-input').disabled, true);
   assert.equal(h.control('chat-send').disabled, true); assert.equal(h.storage.get('xiaoman-needs-conversation-choice'), 'true');
   h.tick(); await nextTurn(); assert.deepEqual(selectedIds(h), []);
@@ -335,7 +457,7 @@ test('unmounting during preparation cannot leave a later mount permanently locke
   h.chat.unmount(); h.mount(); await ready(h);
   oldRead.resolve(snapshot()); await opening;
   assert.equal(h.chat.isBusy(), false); assert.equal(h.control('chat-input').disabled, false);
-  assert.equal(h.calls.includes('new'), false); assert.equal(h.calls.includes('send'), false);
+  assert.equal(h.calls.includes('open-room'), false); assert.equal(h.calls.includes('send'), false);
   h.chat.unmount();
 });
 
@@ -381,6 +503,19 @@ test('settings renders channel failures and agent authentication without a messa
   h.chat.unmount();
 });
 
+test('settings polls device readiness independently of the previously selected conversation', async () => {
+  const paths = [], data = snapshot();
+  data.truth = { agents: [{ id: 'agent-a', online: true, authentication: 'verified', missingTools: [] }] };
+  const h = harness(async path => { paths.push(path); return data; }, { 'xiaoman-current-conversation': 'old-im' }, { view: 'settings' });
+  try {
+    await eventually(() => h.control('chat-endpoints').innerHTML.includes('在线'));
+    h.tick(); await nextTurn(); h.tick(); await nextTurn();
+    assert.ok(paths.length >= 3);
+    assert.ok(paths.every(path => path === 'hub'), JSON.stringify(paths));
+    assert.doesNotMatch(h.control('chat-endpoints').innerHTML, /工具待验证/);
+  } finally { h.chat.unmount(); }
+});
+
 test('a notebook conversation has no second directory or connection forms, and an execution error stays outside details', async () => {
   const data = snapshot(); data.runs = [{ id: 'failed', conversationId: 'old-im', status: 'failed', error: 'AGENT_TIMEOUT', createdAt: 1 }];
   const h = harness(async () => data);
@@ -391,6 +526,56 @@ test('a notebook conversation has no second directory or connection forms, and a
   assert.match(h.control('chat-run-notice').innerHTML, /data-retry-run="failed"/);
   assert.doesNotMatch(h.control('chat-run-notice').innerHTML, /<details/);
   h.chat.unmount();
+});
+
+test('a cancelled Bot child cannot hide the original task failure or its recovery action', async () => {
+  const data = snapshot();
+  data.runs = [
+    { id: 'ask-root', conversationId: 'old-im', botId: 'research', status: 'failed', error: 'AGENT_EMPTY_REPLY', botTaskStopped: 'AGENT_EMPTY_REPLY', nextRunId: 'answer-child', createdAt: 1 },
+    { id: 'answer-child', rootRunId: 'ask-root', conversationId: 'old-im', botId: 'maker', status: 'cancelled', createdAt: 2 },
+  ];
+  const h = harness(async () => data);
+  try {
+    await ready(h);
+    assert.equal(h.control('chat-endpoint').innerHTML, '', 'No generic interruption banner');
+    assert.match(h.control('chat-run-notice').innerHTML, /没有返回结果/);
+    assert.match(h.control('chat-run-notice').innerHTML, /data-retry-run="ask-root"/);
+    assert.equal(h.control('chat-run-counts').innerHTML, '', 'Internal steps are not pending task counts');
+    assert.equal((h.control('chat-runs').innerHTML.match(/class="chat-tracked-run/g) || []).length, 1);
+  } finally { h.chat.unmount(); }
+});
+
+test('a partially completed Bot chain can recover the original draft without sending automatically', async () => {
+  const data = snapshot();
+  data.messages = [{ id: 'original', conversationId: 'old-im', role: 'user', text: '@research @maker 整理这份材料', createdAt: 1 }];
+  data.runs = [{ id: 'partial-root', conversationId: 'old-im', messageId: 'original', botId: 'research', status: 'completed', botTaskStopped: 'BOT_MEMBER_PARTIAL', createdAt: 1 }];
+  const h = harness(async () => data);
+  try {
+    await ready(h);
+    const button = new Element('button', 'test-retry');
+    button.dataset.retryRun = 'partial-root'; button.closest = () => button;
+    h.root.nodes.set(button.id, button);
+    h.root.emit('click', { target: button });
+    await eventually(() => h.control('chat-input').value === data.messages[0].text);
+    assert.equal(h.calls.includes('send'), false);
+    assert.match(h.control('chat-messages').innerHTML, /未完成部分/);
+    assert.equal(h.control('chat-run-notice').innerHTML, '');
+  } finally { h.chat.unmount(); }
+});
+
+test('a queued internal reply cannot hide an uncertain sender that needs user attention', async () => {
+  const data = snapshot();
+  data.runs = [
+    { id: 'uncertain-root', conversationId: 'old-im', status: 'uncertain', nextRunId: 'waiting-answer', createdAt: 1 },
+    { id: 'waiting-answer', rootRunId: 'uncertain-root', conversationId: 'old-im', status: 'queued', createdAt: 2 },
+  ];
+  const h = harness(async () => data);
+  try {
+    await ready(h);
+    assert.equal(h.control('chat-endpoint').innerHTML, '');
+    assert.match(h.control('chat-run-notice').innerHTML, /data-id="uncertain-root"/);
+    assert.match(h.control('chat-run-notice').innerHTML, /未自动重发/);
+  } finally { h.chat.unmount(); }
 });
 
 
@@ -416,4 +601,211 @@ test('iMessage pairing requires its own deliberate conversation choice and prese
   assert.equal(paired.conversationId, 'chosen-im');
   assert.equal(h.chat.hasPendingDownload(), true);
   h.chat.unmount();
+});
+
+test('message ordering uses trusted effective time and sequence, while assistant attribution is not delivery', async () => {
+  const data = snapshot(), at = Date.parse('2026-10-28T02:00:00Z');
+  data.messages = [
+    { id: 'later', conversationId: 'old-im', role: 'user', text: '相同正文', effectiveAt: at + 2000, appendSeq: 1, origin: { channel: 'weixin' } },
+    { id: 'tie-b', conversationId: 'old-im', role: 'user', text: '第二条', effectiveAt: at, appendSeq: 3, origin: { channel: 'imessage' } },
+    { id: 'tie-a', conversationId: 'old-im', role: 'user', text: '第一条', effectiveAt: at, appendSeq: 2, origin: { channel: 'web' } },
+    { id: 'internal', conversationId: 'old-im', role: 'assistant', text: '内部回复', effectiveAt: at + 3000, appendSeq: 4, channel: 'weixin', botId: 'agent-b' },
+    { id: 'outbox', conversationId: 'old-im', role: 'assistant', text: '外部结果', effectiveAt: at + 4000, appendSeq: 5, botId: 'xiaoman', delivery: { channel: 'imessage', state: 'unknown' } },
+  ];
+  const h = harness(async () => data);
+  try {
+    await ready(h);
+    assert.equal(h.control('chat-messages').dataset.messageIds, 'tie-a tie-b later internal outbox');
+    const html = h.control('chat-messages').innerHTML;
+    assert.match(html, /<time datetime="2026-10-28T/);
+    const internal = html.split('id="chat-message-internal"')[1].split('</article>')[0];
+    assert.match(internal, /微信交代/); assert.doesNotMatch(internal, /回微信|送达|已发送/);
+    assert.match(html.split('id="chat-message-outbox"')[1], /回iMessage[\s\S]*发送结果未知/);
+  } finally { h.chat.unmount(); }
+});
+
+test('a late message preserves the visible reading anchor, and exact reveal distinguishes equal text', async () => {
+  const data = snapshot(), at = Date.parse('2026-10-28T02:00:00Z');
+  data.messages = Array.from({ length: 6 }, (_, i) => ({ id: 'm' + i, conversationId: 'old-im', role: i === 3 ? 'assistant' : 'user', text: '完全相同', effectiveAt: at + i * 1000, appendSeq: i + 1 }));
+  const h = harness(async () => data);
+  try {
+    await ready(h); const list = h.control('chat-messages'); list.clientHeight = 100; list.scrollTop = 200; list.emit('scroll');
+    const reading = h.chat.captureReadingPosition(); assert.equal(reading.messageId, 'm2');
+    data.messages.push({ id: 'late', conversationId: 'old-im', role: 'user', text: '迟到的消息', effectiveAt: at - 1000, appendSeq: 7 });
+    h.tick(); await eventually(() => list.dataset.messageIds.startsWith('late'));
+    assert.equal(list.scrollTop, 300); assert.equal(h.chat.captureReadingPosition().messageId, 'm2');
+    assert.equal(await h.chat.revealMessage({ conversationId: 'old-im', messageId: 'm3' }), true);
+    assert.equal(h.control('chat-message-m3').focusCount, 1); assert.equal(list.scrollTop, 400);
+    assert.equal(h.control('chat-message-m0').focusCount, undefined);
+    h.tick(); await nextTurn(); assert.equal(list.scrollTop, 400, 'poll must not return to the newest message');
+  } finally { h.chat.unmount(); }
+});
+
+test('old original lookup requires the exact ID and room, never a similar or latest message', async () => {
+  const data = snapshot(), at = Date.now(), requests = [];
+  data.messages = [{ id: 'latest', conversationId: 'old-im', role: 'user', text: '一样', createdAt: at }];
+  const h = harness(async path => {
+    requests.push(path);
+    if (path.startsWith('hub/message?')) return { conversationId: 'old-im', resolvedConversationId: 'old-im', message: { id: 'archived', conversationId: 'old-im', role: 'assistant', text: '一样', createdAt: at - 5000 } };
+    return data;
+  });
+  try {
+    await ready(h); h.control('chat-input').value = '未发草稿';
+    assert.equal(await h.chat.revealMessage({ messageId: 'archived' }), true);
+    assert.equal(h.control('chat-message-archived').focusCount, 1); assert.equal(h.control('chat-input').value, '未发草稿');
+    const scroll = h.control('chat-messages').scrollTop;
+    assert.equal(await h.chat.revealMessage({ messageId: 'missing' }), false);
+    assert.equal(h.control('chat-messages').scrollTop, scroll); assert.match(h.control('chat-status').textContent, /未跳到其他消息/);
+    assert.ok(requests.includes('hub/message?messageId=archived'));
+  } finally { h.chat.unmount(); }
+});
+
+test('suggested guide drafts wait for explicit append and keep verified references across reload', async () => {
+  const data = snapshot(); let sent;
+  const transport = async (_path, request) => { if (request?.operation === 'send') { sent = request; return {}; } return data; };
+  const h = harness(transport);
+  await ready(h); h.control('chat-input').value = '原来的草稿'; h.root.emit('input', { target: h.control('chat-input') });
+  await h.chat.open({ conversationId: 'old-im', draft: '整理这份已授权资料', guideSourceId: 'guide-1' });
+  assert.equal(h.control('chat-input').value, '原来的草稿'); assert.equal(h.control('chat-draft-suggestion').hidden, false); assert.equal(sent, undefined);
+  const button = new Element('button'); button.dataset.chatAction = 'append-draft'; button.closest = () => button;
+  h.root.emit('click', { target: button }); assert.equal(h.control('chat-input').value, '原来的草稿\n\n整理这份已授权资料');
+  const saved = Object.fromEntries(h.storage); h.chat.unmount();
+  const reloaded = harness(transport, saved);
+  try {
+    await ready(reloaded); assert.equal(sent, undefined); reloaded.submit('chat-compose');
+    await eventually(() => sent && !reloaded.chat.isBusy());
+    assert.equal(sent.guideSourceId, 'guide-1'); assert.equal(sent.content, '原来的草稿\n\n整理这份已授权资料');
+  } finally { reloaded.chat.unmount(); }
+});
+
+test('owner channel unification is an explicit confirmed action, not a side effect of displaying a binding', async () => {
+  const data = snapshot(); data.bindings = [{ id: 'binding-1', channel: 'weixin', account: 'account-1', peer: 'fixture-peer', conversationId: 'old-im', ownerVerified: false }];
+  const posted = []; const h = harness(async (_path, request) => { if (request) posted.push(request); return data; }, {}, { view: 'settings' });
+  try {
+    await eventually(() => h.control('chat-weixin-bindings').innerHTML.includes('这是我本人'));
+    assert.equal(posted.length, 0); const button = new Element('button'); button.dataset = { chatAction: 'verify-owner-route', id: 'binding-1' }; button.closest = () => button;
+    h.root.emit('click', { target: button }); await eventually(() => !h.chat.isBusy()); assert.equal(posted.length, 0);
+    assert.match(h.confirmations[0], /共享 Mori 私聊和上下文/); h.allowConfirm();
+    h.root.emit('click', { target: button }); await eventually(() => posted.length === 1);
+    assert.equal(posted[0].operation, 'verify-owner-route'); assert.equal(posted[0].bindingId, 'binding-1');
+  } finally { h.chat.unmount(); }
+});
+
+test('a recovery keeps its actions without repeating the exact summary already in its message', async () => {
+  const data = snapshot(), summary = '已收到阿探的检查结果。校对员还没有完成核对，因此这件事尚未完成。';
+  data.runs = [{ id: 'partial-root', conversationId: 'old-im', messageId: 'input', status: 'completed', createdAt: 1, report: { outcome: 'partial', summary } }];
+  data.messages = [{ id: 'reply', conversationId: 'old-im', runId: 'partial-root', role: 'assistant', text: summary, createdAt: 2 }];
+  const h = harness(async () => data);
+  try {
+    await ready(h); const html = h.control('chat-messages').innerHTML;
+    assert.equal(html.split(summary).length - 1, 1, 'The historical body remains the single complete explanation');
+    assert.match(html, /data-retry-run="partial-root"/);
+    assert.match(html, /class="chat-message-recovery" role="status"><button/);
+    assert.equal(h.control('chat-run-notice').innerHTML, '');
+  } finally { h.chat.unmount(); }
+});
+
+test('recovery retains a different gap and does not deduplicate against another message', async () => {
+  for (const text of ['已收到阿探的检查结果。', '检查结果已保存。']) {
+    const data = snapshot(), gap = '还缺发票附件，不能完成核对。';
+    data.runs = [{ id: 'partial-root', conversationId: 'old-im', messageId: 'input', status: 'completed', createdAt: 1, report: { outcome: 'partial', summary: gap } }];
+    data.messages = [
+      { id: 'unrelated', conversationId: 'old-im', role: 'assistant', text: gap, createdAt: 1 },
+      { id: 'reply', conversationId: 'old-im', runId: 'partial-root', role: 'assistant', text, createdAt: 2 },
+    ];
+    const h = harness(async () => data);
+    try {
+      await ready(h); const reply = h.control('chat-messages').innerHTML.split('id="chat-message-reply"')[1];
+      assert.match(reply, /<p>还缺发票附件，不能完成核对。<\/p>/);
+      assert.match(reply, /data-retry-run="partial-root"/);
+    } finally { h.chat.unmount(); }
+  }
+});
+
+test('the running header shows a concise host stage while keeping full reported progress in task details', async () => {
+  const data = snapshot(), summary = '已核对当前六位成员，并正在逐个整理他们的职责、近期进度和可继续推进的事情。';
+  data.runs = [{ id: 'working', conversationId: 'old-im', status: 'running', createdAt: 1, progress: { stage: 'reported', label: summary, elapsedSeconds: 20 }, report: { outcome: 'in_progress', summary } }];
+  const h = harness(async () => data);
+  try {
+    await ready(h); assert.match(h.control('chat-endpoint').innerHTML, />正在处理</);
+    assert.doesNotMatch(h.control('chat-endpoint').innerHTML, /六位成员/); assert.match(h.control('chat-runs').innerHTML, /当前六位成员/);
+    data.runs[0].progress = { stage: 'reading_sources', label: '很长的资料说明不应成为顶部横幅', elapsedSeconds: 21 };
+    h.tick(); await eventually(() => h.control('chat-endpoint').innerHTML.includes('正在读取资料'));
+    assert.equal(h.control('chat-run-notice').innerHTML, '');
+  } finally { h.chat.unmount(); }
+});
+
+test('host failure codes have readable recovery reasons while unknown codes stay in execution details', async () => {
+  for (const [code, readable] of [['AGENT_TURN_FAILED', /未能完成这一轮/], ['AGENT_RATE_LIMITED', /额度或频率限制/], ['AGENT_NEW_FAILURE', /这次处理未完成/]]) {
+    const data = snapshot();
+    data.runs = [{ id: 'failed-run', conversationId: 'old-im', status: 'failed', error: code, createdAt: 1 }];
+    const original = `历史原文保留：${code}`;
+    data.messages = [{ id: 'failed-reply', conversationId: 'old-im', role: 'assistant', runId: 'failed-run', text: original, createdAt: 2 }];
+    const h = harness(async () => data);
+    try {
+      await ready(h); const messages = h.control('chat-messages').innerHTML;
+      assert.ok(messages.includes(original), 'Historical assistant text must not be rewritten');
+      const recovery = messages.split('class="chat-message-recovery"')[1];
+      assert.match(recovery, readable); assert.ok(!recovery.includes(code)); assert.match(recovery, /data-retry-run="failed-run"/);
+      const records = h.control('chat-runs').innerHTML, [normal, detail] = records.split('id="run-detail-failed-run"');
+      assert.ok(!normal.includes(code)); assert.ok(detail.includes(`<code>${code}</code>`)); assert.match(detail, /hidden/);
+    } finally { h.chat.unmount(); }
+  }
+});
+
+test('actual host origin projections render group IM and addressed private replies without inventing delivery for internal steps', async () => {
+  const rooms = [{ id: 'group', title: '全员群', botId: 'xiaoman', roomKind: 'group' }, { id: 'direct', title: '阿探', botId: 'agent-b', roomKind: 'direct' }];
+  const data = snapshot(rooms), at = Date.parse('2026-10-28T13:41:00Z');
+  const wx = { channel: 'weixin', account: 'fixture-account', peer: 'fixture-owner', sourceMessageId: 'wx-fixture', occurredAt: at };
+  const im = { channel: 'imessage', account: 'fixture-channel', peer: 'fixture-owner', sourceMessageId: 'im-fixture', occurredAt: at + 1000 };
+  const deliveries = new Map([
+    ['group-answer', { state: 'sent', source: wx }],
+    ['direct-answer', { state: 'unknown', source: im }],
+  ]);
+  const projectedHost = { get: (kind, id) => kind === 'delivery' ? deliveries.get(id) : undefined, resolveConversationId: id => id === 'old-group' ? 'group' : id };
+  // Fixture records pass through the production host projection. This is not
+  // evidence of a live IM receipt and never contacts either messaging service.
+  const rows = [
+    { id: 'group-input', conversationId: 'old-group', role: 'user', text: '帮我安排今天的事项', source: wx },
+    { id: 'group-answer', conversationId: 'group', role: 'assistant', botId: 'xiaoman', text: '群聊的总管回报', source: wx },
+    { id: 'group-internal', conversationId: 'group', role: 'assistant', botId: 'agent-b', text: '成员内部进展', source: wx },
+    { id: 'direct-input', conversationId: 'direct', role: 'user', text: '@research 核实这份资料', source: im },
+    { id: 'direct-answer', conversationId: 'direct', role: 'assistant', botId: 'agent-b', text: '定向私聊结果', source: im },
+  ];
+  data.messages = rows.map((row, index) => projectMessage(projectedHost, { ...row, ...messageTimes(row.source, at + 5000 + index), createdAt: at + 5000 + index, appendSeq: index + 1 }));
+  const h = harness(async () => data, {}, { conversationId: 'group', roomKind: 'group' });
+  try {
+    await ready(h); const group = h.control('chat-messages').innerHTML;
+    assert.match(group.split('id="chat-message-group-input"')[1].split('</article>')[0], /微信/);
+    assert.match(group.split('id="chat-message-group-answer"')[1].split('</article>')[0], /回微信[\s\S]*已发送/);
+    assert.match(group.split('id="chat-message-group-internal"')[1].split('</article>')[0], /微信交代/);
+    assert.doesNotMatch(group.split('id="chat-message-group-internal"')[1].split('</article>')[0], /回微信|已发送|送达/);
+    assert.doesNotMatch(group, /定向私聊结果/);
+    h.mount({ conversationId: 'direct', roomKind: 'direct', botId: 'agent-b' }); await ready(h);
+    const direct = h.control('chat-messages').innerHTML;
+    assert.match(direct, /@research 核实这份资料/); assert.match(direct, /回iMessage[\s\S]*发送结果未知/);
+    assert.doesNotMatch(direct, /群聊的总管回报|微信/);
+  } finally { h.chat.unmount(); }
+});
+
+test('IM bubbles expose text and generic channel marks, with actual delivery errors and unknown times retained', async () => {
+  const data = snapshot(), at = Date.parse('2026-10-28T13:41:00Z');
+  data.messages = [
+    { id: 'wx', conversationId: 'old-im', role: 'user', text: '微信交代', origin: { channel: 'weixin' }, effectiveAt: at, appendSeq: 1 },
+    { id: 'im', conversationId: 'old-im', role: 'user', text: '信息交代', origin: { channel: 'imessage' }, effectiveAt: at + 1, appendSeq: 2 },
+    { id: 'reply', conversationId: 'old-im', role: 'assistant', botId: 'xiaoman', text: '真实失败回报', origin: { channel: 'weixin' }, effectiveAt: at + 2, appendSeq: 3, delivery: { channel: 'weixin', state: 'failed' } },
+    { id: 'unknown-time', conversationId: 'old-im', role: 'assistant', botId: 'xiaoman', text: '原渠道的历史结果', origin: { channel: 'imessage' }, effectiveAt: null, appendSeq: 4 },
+  ];
+  const h = harness(async () => data);
+  try {
+    await ready(h); const html = h.control('chat-messages').innerHTML;
+    const bubble = id => html.split(`id="chat-message-${id}"`)[1].split('</article>')[0];
+    assert.match(bubble('wx'), /data-channel="weixin"[\s\S]*chat-channel-icon[\s\S]*<span>微信<\/span>/);
+    assert.match(bubble('im'), /data-channel="imessage"[\s\S]*chat-channel-icon[\s\S]*<span>iMessage<\/span>/);
+    assert.match(bubble('wx'), /aria-hidden="true" focusable="false"/);
+    assert.match(bubble('reply'), /回微信[\s\S]*needs-attention[\s\S]*发送失败，请检查连接/);
+    assert.match(bubble('unknown-time'), /iMessage交代[\s\S]*时间未知/);
+    assert.doesNotMatch(bubble('unknown-time'), /回iMessage|已发送|1970/);
+    assert.doesNotMatch(html, /logo|微信官方|apple\.com|weixin\.qq/);
+  } finally { h.chat.unmount(); }
 });

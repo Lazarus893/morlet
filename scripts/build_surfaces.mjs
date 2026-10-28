@@ -19,6 +19,9 @@ for (const [entry, output] of [['plugins/webui/surfaces.jsx', 'plugins/webui/pub
    const mit = await readFile(resolve(root, 'node_modules/react/LICENSE'), 'utf8');
    license = readme.slice(readme.lastIndexOf('License\n')) + '\n' + mit.slice(mit.indexOf('Permission is hereby granted'));
   }
+  // This published tarball declares MIT but omits the upstream license file.
+  // Keep the fetched upstream notice in source so builds remain reproducible offline.
+  if (!license && name === 'react-remove-scroll-bar') license = await readFile(resolve(root, 'vendor/licenses/react-remove-scroll-bar.MIT.txt'), 'utf8');
   if (!license) throw new Error(`Missing license for bundled package: ${name}`);
   notices.push(`\n--- ${name} ---\n${license}`);
  }

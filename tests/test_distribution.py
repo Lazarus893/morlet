@@ -236,6 +236,15 @@ class DistributionTests(unittest.TestCase):
             self.assertIn("ExecStart=/opt/node/bin/node /srv/fixture-agent/current/scripts/webui.mjs", service)
             self.assertEqual(config.stat().st_mode & 0o777, 0o600)
             self.assertNotIn(config, list(source_files(root)))
+            tls = dict(cfg, tls_certificate="/srv/tls/fullchain.pem", tls_certificate_key="/srv/tls/private.key")
+            config.write_text(json.dumps(tls))
+            render_deployment(root)
+            secure_nginx = (root / ".runtime/deployment/nginx.conf").read_text()
+            self.assertIn("listen 4101 ssl;", secure_nginx)
+            self.assertIn("ssl_certificate /srv/tls/fullchain.pem;", secure_nginx)
+            self.assertIn("PA_WEB_ORIGIN=https://fixture.example:4101", (root / ".runtime/deployment/xiaoman-web.service").read_text())
+            for invalid in (dict(cfg, tls_certificate="/srv/tls/cert"), dict(tls, tls_certificate_key="/srv/../key"), dict(tls, tls_certificate="/srv/cert;return 200;")):
+                with self.assertRaises(ValueError): validate_deployment(invalid)
             for key, value in (("public_host", "host; injected"), ("install_dir", "/srv/../private"), ("service_user", "user\nroot"), ("web_port", 4101)):
                 with self.subTest(key=key), self.assertRaises(ValueError): validate_deployment(dict(cfg, **{key: value}))
 

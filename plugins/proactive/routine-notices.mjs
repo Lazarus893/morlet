@@ -130,7 +130,7 @@ function addNode(hub, routine, occurrence, event, baseUrl) {
     reason: event.reason, actionLabel: event.actionLabel, href, createdAt, expiresAt, channelId, bindingStamp: channelId ? stamp(route.channel, route.binding) : null, state: channelId ? 'pending' : 'journal', candidateId: null, deliveryId: null };
   if (channelId && expiresAt > hub.now()) {
     const link = externalLink(href, baseUrl);
-    const heading = `${cut(routine.title, 80)}：${event.reason}。`, action = event.actionLabel + (link ? '：' + link : '：打开小满手账中的同名事项');
+    const heading = `${cut(routine.title, 80)}：${event.reason}。`, action = event.actionLabel + (link ? '：' + link : '：打开Morlet手账中的同名事项');
     const message = `${heading}\n${cut(event.summary, Math.max(0, 498 - Array.from(heading + action).length))}\n${action}`;
     const candidate = offerReachOut(hub, { scope: 'owner', source: 'routine', key: id, topic: 'routine:' + id, kind: event.kind === 'failed' ? 'approval' : 'watch_hit', text: message, expiresAt, route: { channel: route.channel.channel, account: route.channel.id, peer: route.channel.peer } });
     notice.candidateId = candidate.id;
@@ -139,7 +139,7 @@ function addNode(hub, routine, occurrence, event, baseUrl) {
 }
 
 export function routineNotificationChannels(hub) {
-  return hub.all('channelEndpoint').filter(channel => channelBinding(hub, channel.id)).map(channel => ({ id: channel.id, label: channel.label || (channel.channel === 'imessage' ? 'iMessage' : '桌面小满'), channel: channel.channel, online: Boolean(channel.ready && hub.now() - channel.lastSeen < 45000) }));
+  return hub.all('channelEndpoint').filter(channel => channelBinding(hub, channel.id)).map(channel => ({ id: channel.id, label: channel.label || (channel.channel === 'imessage' ? 'iMessage' : '桌面Morlet'), channel: channel.channel, online: Boolean(channel.ready && hub.now() - channel.lastSeen < 45000) }));
 }
 
 export function routineNotificationChannelSelected(hub, channelId) {

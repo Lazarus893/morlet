@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def validate(value):
     required = {"install_dir", "service_user", "service_group", "nginx_user", "node_command", "nginx_command",
                 "public_host", "public_port", "web_port", "dsh_port"}
-    if not isinstance(value, dict) or set(value) != required:
+    if not isinstance(value, dict) or (set(value) - {"tls_certificate", "tls_certificate_key"}) != required:
         raise ValueError("Deployment config fields must match deployment.example.json")
     for key in ("install_dir", "node_command", "nginx_command"):
         path = value[key]
@@ -27,6 +27,11 @@ def validate(value):
     ports = [value[key] for key in ("public_port", "web_port", "dsh_port")]
     if any(type(port) is not int or not 1024 <= port <= 65535 for port in ports) or len(set(ports)) != 3:
         raise ValueError("Choose three distinct unprivileged ports")
+    certificate, key = value.get("tls_certificate"), value.get("tls_certificate_key")
+    if bool(certificate) != bool(key): raise ValueError("TLS requires both certificate and key")
+    for path in (certificate, key):
+        if path is not None and (not isinstance(path, str) or not re.fullmatch(r"/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*", path) or any(p in {".", ".."} for p in Path(path).parts)):
+            raise ValueError("Invalid TLS file path")
     return value
 
 
@@ -51,7 +56,11 @@ def render(root=ROOT):
     if cfg["public_host"].endswith(".invalid"):
         raise ValueError("Replace the example host in .runtime/deployment.json")
     variables = {key.upper(): str(value) for key, value in cfg.items()}
-    variables["PUBLIC_ORIGIN"] = f"http://{cfg['public_host']}:{cfg['public_port']}"
+    tls = bool(cfg.get("tls_certificate"))
+    variables["PUBLIC_ORIGIN"] = f"{'https' if tls else 'http'}://{cfg['public_host']}:{cfg['public_port']}"
+    variables["TLS_LISTEN"] = " ssl" if tls else ""
+    variables["TLS_CONFIG"] = f"ssl_certificate {cfg['tls_certificate']};\n        ssl_certificate_key {cfg['tls_certificate_key']};\n        ssl_protocols TLSv1.2 TLSv1.3;" if tls else "# Login is allowed only over HTTPS or local loopback."
+
     rendered = {}
     for template in sorted((root / "config/deployment").glob("*.in")):
         content = template.read_text()
